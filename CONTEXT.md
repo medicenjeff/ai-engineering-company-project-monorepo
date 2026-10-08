@@ -138,3 +138,44 @@ Implementa el siguiente marcado Schema.org en tu landing page:
     "https://instagram.com/nexova"
   ]
 }
+
+Modelo de proveedores
+Cada proveedor debe incluir estos campos:
+
+| Campo | Descripción y validación |
+| --- | --- |
+| `name` | Nombre del proveedor. Obligatorio. |
+| `country` | País donde opera el proveedor. Obligatorio. |
+| `product_categories` | Lista no vacía de categorías de servicio que ofrece. Los valores válidos son `executive_search`, `customer_service_outsourcing` y `corporate_training`. |
+| `rate` | Tarifa por hora en USD. Debe ser un número estrictamente positivo. |
+| `status` | Estado del proveedor. Solo se permiten `active` (activo) y `suspended` (suspendido). |
+| `updated_at` | Fecha y hora de la última actualización, en formato ISO 8601 UTC. La genera el sistema; no la envía el cliente. |
+
+Proveedores iniciales
+Los nombres siguientes son ficticios y se usan como datos iniciales del proyecto:
+
+```json
+[
+  {
+    "name": "Levante Executive Search",
+    "country": "España",
+    "product_categories": ["executive_search"],
+    "rate": "125.00",
+    "status": "active"
+  },
+  {
+    "name": "Northstar CX Partners",
+    "country": "Estados Unidos",
+    "product_categories": ["customer_service_outsourcing"],
+    "rate": "42.50",
+    "status": "active"
+  },
+  {
+    "name": "Lidera Formación",
+    "country": "España",
+    "product_categories": ["corporate_training"],
+    "rate": "80.00",
+    "status": "suspended"
+  }
+]
+```

@@ -22,6 +22,7 @@ dependencies = [
 
 [project.scripts]
 ai-engineering-company-project-monorepo = "ai_engineering_company_project_monorepo:main"
+seed = "ai_engineering_company_project_monorepo.seed:main"
 
 [build-system]
 requires = ["uv_build>=0.12.19,<0.13.0"]
