@@ -1,5 +1,16 @@
-const API_URL = "http://127.0.0.1:8000/api/incidents/analyze";
-const EXPORT_URL = "http://127.0.0.1:8000/api/incidents/results/export";
+function resolveApiBaseUrl() {
+  const { hostname, protocol } = window.location;
+  const forwardedHost = hostname.replace(/-5173(?=\.)/, "-8000");
+  if (forwardedHost !== hostname) return `${protocol}//${forwardedHost}`;
+  if (!hostname || hostname === "localhost" || hostname === "127.0.0.1") {
+    return "http://127.0.0.1:8000";
+  }
+  return `${protocol}//${hostname}:8000`;
+}
+
+const API_BASE_URL = resolveApiBaseUrl();
+const API_URL = `${API_BASE_URL}/api/incidents/analyze`;
+const EXPORT_URL = `${API_BASE_URL}/api/incidents/results/export`;
 
 const dropZone = document.querySelector("#drop-zone");
 const fileInput = document.querySelector("#file-input");
@@ -136,3 +147,125 @@ dropZone.addEventListener("keydown", (event) => {
 dropZone.addEventListener("drop", (event) => selectFile(event.dataTransfer.files[0]));
 analyzeButton.addEventListener("click", analyzeFile);
 downloadButton.addEventListener("click", downloadResults);
+
+(() => {
+  const suppliersUrl = `${API_BASE_URL}/suppliers`;
+  const analysisView = document.querySelector("#analysis-view");
+  const suppliersView = document.querySelector("#suppliers-view");
+  const breadcrumb = document.querySelector("#page-breadcrumb");
+  const supplierCount = document.querySelector("#supplier-count");
+  const supplierRows = document.querySelector("#supplier-rows");
+  const supplierTableWrap = document.querySelector("#supplier-table-wrap");
+  const supplierStatus = document.querySelector("#supplier-status");
+  const supplierError = document.querySelector("#supplier-error");
+  const refreshSuppliersButton = document.querySelector("#refresh-suppliers");
+  const routeLinks = [...document.querySelectorAll('.nav-item[href="#analysis"], .nav-item[href="#suppliers"]')];
+  const categoryLabels = {
+    executive_search: "Headhunting ejecutivo",
+    customer_service_outsourcing: "Outsourcing de atención al cliente",
+    corporate_training: "Formación corporativa",
+  };
+  let suppliersLoaded = false;
+  let suppliersLoading = false;
+
+  function createCell(row, value, className = "") {
+    const cell = document.createElement("td");
+    if (className) cell.className = className;
+    cell.textContent = value;
+    row.append(cell);
+    return cell;
+  }
+
+  function renderSupplier(supplier) {
+    const row = document.createElement("tr");
+    createCell(row, supplier.name, "supplier-name");
+    createCell(row, supplier.country);
+
+    const categoryCell = document.createElement("td");
+    const categoryList = document.createElement("ul");
+    categoryList.className = "category-list";
+    supplier.product_categories.forEach((category) => {
+      const item = document.createElement("li");
+      item.textContent = categoryLabels[category] || category;
+      categoryList.append(item);
+    });
+    categoryCell.append(categoryList);
+    row.append(categoryCell);
+
+    const numericRate = Number(supplier.rate);
+    const formattedRate = Number.isFinite(numericRate)
+      ? new Intl.NumberFormat("es-ES", {
+          style: "currency",
+          currency: "USD",
+          minimumFractionDigits: 2,
+        }).format(numericRate)
+      : "—";
+    createCell(row, formattedRate, "supplier-rate");
+
+    const statusCell = document.createElement("td");
+    const statusBadge = document.createElement("span");
+    statusBadge.className = `status-badge ${supplier.status === "active" ? "is-active" : "is-suspended"}`;
+    statusBadge.textContent = supplier.status === "active" ? "Activo" : "Suspendido";
+    statusCell.append(statusBadge);
+    row.append(statusCell);
+    return row;
+  }
+
+  async function loadSuppliers() {
+    if (suppliersLoading) return;
+    suppliersLoading = true;
+    supplierError.hidden = true;
+    refreshSuppliersButton.disabled = true;
+    refreshSuppliersButton.setAttribute("aria-busy", "true");
+    if (!suppliersLoaded) {
+      supplierStatus.textContent = "Cargando proveedores…";
+      supplierStatus.hidden = false;
+    }
+
+    try {
+      const response = await fetch(suppliersUrl);
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.detail || "No se pudo cargar el directorio.");
+
+      supplierRows.replaceChildren(...payload.map(renderSupplier));
+      suppliersLoaded = true;
+      supplierCount.textContent = `${payload.length} ${payload.length === 1 ? "proveedor" : "proveedores"}`;
+      supplierTableWrap.hidden = payload.length === 0;
+      supplierStatus.textContent = "No hay proveedores registrados.";
+      supplierStatus.hidden = payload.length > 0;
+    } catch (error) {
+      supplierStatus.hidden = true;
+      supplierError.textContent = error.message?.toLowerCase().includes("fetch")
+        ? "No se pudo conectar con la API. Comprueba que FastAPI esté activo y que el puerto 8000 esté disponible."
+        : error.message || "No se pudo conectar con la API.";
+      supplierError.hidden = false;
+    } finally {
+      suppliersLoading = false;
+      refreshSuppliersButton.disabled = false;
+      refreshSuppliersButton.removeAttribute("aria-busy");
+    }
+  }
+
+  function syncDirectoryRoute() {
+    const hash = window.location.hash;
+    if (hash !== "#analysis" && hash !== "#suppliers") return;
+
+    const showSuppliers = hash === "#suppliers";
+    analysisView.hidden = showSuppliers;
+    suppliersView.hidden = !showSuppliers;
+    breadcrumb.textContent = showSuppliers ? "Directorio de proveedores" : "Análisis de incidencias";
+    document.title = showSuppliers ? "Pulse Desk | Proveedores" : "Pulse Desk | Análisis de incidencias";
+    routeLinks.forEach((link) => {
+      const active = link.hash === hash;
+      link.classList.toggle("active", active);
+      if (active) link.setAttribute("aria-current", "page");
+      else link.removeAttribute("aria-current");
+    });
+
+    if (showSuppliers && !suppliersLoaded) loadSuppliers();
+  }
+
+  refreshSuppliersButton.addEventListener("click", loadSuppliers);
+  window.addEventListener("hashchange", syncDirectoryRoute);
+  syncDirectoryRoute();
+})();

@@ -1,6 +1,6 @@
 # Pulse Desk
 
-Interfaz estática para analizar incidencias mediante `POST /api/incidents/analyze`.
+Interfaz estática para analizar incidencias mediante `POST /api/incidents/analyze` y consultar el directorio de proveedores mediante `GET /suppliers`.
 
 ## Ejecución
 

@@ -16,7 +16,7 @@ def test_seed_validates_serializes_and_is_repeatablea(tmp_path: Path) -> None:
     supplier_data = {
         "name": "Test supplier",
         "country": "Spain",
-        "product_categories": ["training"],
+        "product_categories": ["corporate_training"],
         "rate": "125.50",
         "status": "active",
     }

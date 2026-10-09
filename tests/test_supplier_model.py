@@ -18,7 +18,7 @@ def test_supplier_requires_all_fields_and_validates_values() -> None:
     supplier = Supplier(
         name="Talent Partners",
         country="Chile",
-        product_categories=["recruiting"],
+        product_categories=["executive_search"],
         rate=Decimal("125.50"),
         updated_at=updated_at,
         status="active",
@@ -38,7 +38,7 @@ def test_supplier_forbids_unsupported_fields() -> None:
         Supplier(
             name="Talent Partners",
             country="Chile",
-            product_categories=["recruiting"],
+            product_categories=["executive_search"],
             rate=Decimal("125.50"),
             updated_at=datetime.now(timezone.utc),
             status="active",
@@ -50,7 +50,7 @@ def test_supplier_create_and_response_have_separate_fields() -> None:
     supplier_data = {
         "name": "Talent Partners",
         "country": "Chile",
-        "product_categories": ["recruiting"],
+        "product_categories": ["executive_search"],
         "rate": Decimal("125.50"),
         "status": "active",
     }
@@ -68,7 +68,7 @@ def test_supplier_accepts_suspended_and_rejects_unknown_status() -> None:
     supplier_data = {
         "name": "Talent Partners",
         "country": "Chile",
-        "product_categories": ["recruiting"],
+        "product_categories": ["executive_search"],
         "rate": Decimal("125.50"),
         "updated_at": datetime.now(timezone.utc),
     }
@@ -86,7 +86,7 @@ def test_supplier_rejects_non_positive_rate(rate: Decimal) -> None:
         Supplier(
             name="Talent Partners",
             country="Chile",
-            product_categories=["recruiting"],
+            product_categories=["executive_search"],
             rate=rate,
             updated_at=datetime.now(timezone.utc),
             status="active",

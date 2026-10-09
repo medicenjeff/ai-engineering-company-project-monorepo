@@ -28,10 +28,11 @@
           <span class="nav-section">OPERACIONES</span>
           <a class="nav-item" href="#overview"><span class="nav-glyph">01</span>Resumen</a>
           <a class="nav-item active" href="#analysis" aria-current="page"><span class="nav-glyph">02</span>Incidencias <b>4</b></a>
-          <a class="nav-item" href="#requests"><span class="nav-glyph">03</span>Solicitudes</a>
-          <a class="nav-item" href="#team"><span class="nav-glyph">04</span>Equipo</a>
+          <a class="nav-item" href="#suppliers"><span class="nav-glyph">03</span>Proveedores</a>
+          <a class="nav-item" href="#requests"><span class="nav-glyph">04</span>Solicitudes</a>
+          <a class="nav-item" href="#team"><span class="nav-glyph">05</span>Equipo</a>
           <span class="nav-section">SISTEMA</span>
-          <a class="nav-item" href="#settings"><span class="nav-glyph">05</span>Configuración</a>
+          <a class="nav-item" href="#settings"><span class="nav-glyph">06</span>Configuración</a>
         </nav>
 
         <div class="sidebar-footer">
@@ -42,11 +43,11 @@
 
       <main class="main-content" id="analysis">
         <header class="topbar">
-          <div class="breadcrumbs"><span>Operaciones</span><span>/</span><strong>Análisis de incidencias</strong></div>
+          <div class="breadcrumbs"><span>Operaciones</span><span>/</span><strong id="page-breadcrumb">Análisis de incidencias</strong></div>
           <div class="topbar-actions"><span class="live-dot"><i></i>API conectada</span><button class="icon-button" title="Notificaciones" aria-label="Notificaciones">♧</button><button class="avatar small" title="Cuenta de usuario">JM</button></div>
         </header>
 
-        <div class="page-content">
+        <div class="page-content" id="analysis-view">
           <section class="page-intro">
             <div><span class="eyebrow accent">CONTROL OPERATIVO · 29 SEP 2026</span><h1>Análisis de incidencias</h1><p>Convierte un export de incidencias en señales claras para tu equipo.</p></div>
             <div class="intro-note"><span class="note-number">01</span><span>Sube un CSV<br />para comenzar</span></div>
@@ -78,6 +79,37 @@
               <article class="detail-card"><div class="card-title"><span>Por estado</span><span class="card-label">VALIDADOS</span></div><div class="empty-state">Los resultados aparecerán aquí</div></article>
               <article class="detail-card issues-card"><div class="card-title"><span>Registros inválidos</span><span class="card-label warning-label">REVISIÓN</span></div><div class="empty-state">Los problemas aparecerán aquí</div></article>
             </div>
+          </section>
+        </div>
+
+        <div class="page-content" id="suppliers-view" hidden>
+          <section class="page-intro">
+            <div><span class="eyebrow accent">NEXOVA · DIRECTORIO</span><h1>Proveedores</h1><p>Consulta los proveedores y sus servicios registrados.</p></div>
+            <div class="directory-summary"><span class="eyebrow">REGISTROS</span><strong id="supplier-count">—</strong></div>
+          </section>
+
+          <section class="supplier-directory" aria-labelledby="supplier-directory-title">
+            <div class="section-heading">
+              <div><span class="eyebrow">RED DE SERVICIOS</span><h2 id="supplier-directory-title">Directorio de proveedores</h2></div>
+              <button class="download-button refresh-button" id="refresh-suppliers" type="button" title="Actualizar directorio"><span aria-hidden="true">↻</span>Actualizar</button>
+            </div>
+            <div class="error-banner" id="supplier-error" role="alert" hidden></div>
+            <div class="supplier-table-wrap" id="supplier-table-wrap" hidden>
+              <table class="supplier-table">
+                <caption class="visually-hidden">Proveedores registrados con país, categorías de servicio, tarifa por hora en USD y estado</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Nombre</th>
+                    <th scope="col">País</th>
+                    <th scope="col">Categorías de servicio</th>
+                    <th scope="col">Tarifa / hora (USD)</th>
+                    <th scope="col">Estado</th>
+                  </tr>
+                </thead>
+                <tbody id="supplier-rows"></tbody>
+              </table>
+            </div>
+            <div class="supplier-status" id="supplier-status" role="status" aria-live="polite">Cargando proveedores…</div>
           </section>
         </div>
       </main>

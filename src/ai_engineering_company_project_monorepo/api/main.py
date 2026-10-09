@@ -10,6 +10,7 @@ from tinydb import TinyDB
 from ai_engineering_company_project_monorepo.api.auth import router as auth_router
 from ai_engineering_company_project_monorepo.api.incidents import router as incidents_router
 from ai_engineering_company_project_monorepo.api.profiles import router as profiles_router
+from ai_engineering_company_project_monorepo.api.suppliers import router as suppliers_router
 from ai_engineering_company_project_monorepo.api.users import router as users_router
 
 
@@ -32,10 +33,12 @@ app.add_middleware(
         "http://127.0.0.1:5173",
         "null",
     ],
-    allow_methods=["GET", "POST"],
+    allow_origin_regex=r"https://[a-zA-Z0-9-]+-5173\.(?:app\.)?github\.dev",
+    allow_methods=["GET", "POST", "PATCH", "DELETE"],
     allow_headers=["*"],
 )
 app.include_router(auth_router)
 app.include_router(incidents_router)
 app.include_router(users_router)
 app.include_router(profiles_router)
+app.include_router(suppliers_router)
