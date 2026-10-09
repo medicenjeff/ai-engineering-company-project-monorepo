@@ -159,14 +159,57 @@ downloadButton.addEventListener("click", downloadResults);
   const supplierStatus = document.querySelector("#supplier-status");
   const supplierError = document.querySelector("#supplier-error");
   const refreshSuppliersButton = document.querySelector("#refresh-suppliers");
+  const countryFilter = document.querySelector("#supplier-country-filter");
+  const categoryFilter = document.querySelector("#supplier-category-filter");
+  const createSupplierForm = document.querySelector("#supplier-create-form");
+  const createSupplierButton = document.querySelector("#create-supplier-button");
+  const supplierFormError = document.querySelector("#supplier-form-error");
+  const supplierFormSuccess = document.querySelector("#supplier-form-success");
   const routeLinks = [...document.querySelectorAll('.nav-item[href="#analysis"], .nav-item[href="#suppliers"]')];
   const categoryLabels = {
     executive_search: "Headhunting ejecutivo",
     customer_service_outsourcing: "Outsourcing de atención al cliente",
     corporate_training: "Formación corporativa",
   };
+  const categoryFormLabels = {
+    executive_search: "Headhunting ejecutivo",
+    customer_service_outsourcing: "Outsourcing de atención al cliente",
+    corporate_training: "Formación corporativa",
+  };
+  let suppliers = [];
   let suppliersLoaded = false;
-  let suppliersLoading = false;
+  let loadController = null;
+
+  function apiErrorMessage(payload, fallback) {
+    const detail = payload?.detail;
+    if (typeof detail === "string") return detail;
+    if (Array.isArray(detail)) {
+      return detail.map((issue) => {
+        const field = Array.isArray(issue.loc)
+          ? issue.loc.filter((part) => part !== "body").join(".")
+          : "";
+        return `${field ? `${field}: ` : ""}${issue.msg || "Entrada no válida"}`;
+      }).join("; ");
+    }
+    return fallback;
+  }
+
+  function clearSupplierError() {
+    supplierError.hidden = true;
+    supplierError.textContent = "";
+  }
+
+  function showSupplierError(message) {
+    supplierError.textContent = message;
+    supplierError.hidden = false;
+  }
+
+  function replaceSupplier(updatedSupplier) {
+    const index = suppliers.findIndex((supplier) => supplier.id === updatedSupplier.id);
+    if (index === -1) return;
+    suppliers[index] = updatedSupplier;
+    supplierRows.replaceChildren(...suppliers.map(renderSupplier));
+  }
 
   function createCell(row, value, className = "") {
     const cell = document.createElement("td");
@@ -192,15 +235,30 @@ downloadButton.addEventListener("click", downloadResults);
     categoryCell.append(categoryList);
     row.append(categoryCell);
 
-    const numericRate = Number(supplier.rate);
-    const formattedRate = Number.isFinite(numericRate)
-      ? new Intl.NumberFormat("es-ES", {
-          style: "currency",
-          currency: "USD",
-          minimumFractionDigits: 2,
-        }).format(numericRate)
-      : "—";
-    createCell(row, formattedRate, "supplier-rate");
+    const rateCell = document.createElement("td");
+    rateCell.className = "supplier-rate";
+    const rateEditor = document.createElement("form");
+    rateEditor.className = "rate-editor";
+    rateEditor.dataset.supplierId = supplier.id;
+    const rateLabel = document.createElement("label");
+    rateLabel.className = "visually-hidden";
+    rateLabel.textContent = `Tarifa por hora en USD para ${supplier.name}`;
+    const rateInput = document.createElement("input");
+    rateInput.type = "number";
+    rateInput.name = "rate";
+    rateInput.min = "0.01";
+    rateInput.step = "0.01";
+    rateInput.required = true;
+    rateInput.inputMode = "decimal";
+    rateInput.value = String(supplier.rate);
+    rateLabel.append(rateInput);
+    const saveRateButton = document.createElement("button");
+    saveRateButton.type = "submit";
+    saveRateButton.className = "row-action rate-save";
+    saveRateButton.textContent = "Guardar";
+    rateEditor.append(rateLabel, saveRateButton);
+    rateCell.append(rateEditor);
+    row.append(rateCell);
 
     const statusCell = document.createElement("td");
     const statusBadge = document.createElement("span");
@@ -208,13 +266,26 @@ downloadButton.addEventListener("click", downloadResults);
     statusBadge.textContent = supplier.status === "active" ? "Activo" : "Suspendido";
     statusCell.append(statusBadge);
     row.append(statusCell);
+
+    const actionCell = document.createElement("td");
+    const statusButton = document.createElement("button");
+    statusButton.type = "button";
+    statusButton.className = "row-action status-action";
+    statusButton.dataset.action = "status";
+    statusButton.dataset.supplierId = supplier.id;
+    statusButton.dataset.status = supplier.status === "active" ? "suspended" : "active";
+    statusButton.textContent = supplier.status === "active" ? "Suspender" : "Activar";
+    statusButton.setAttribute("aria-label", `${statusButton.textContent} a ${supplier.name}`);
+    actionCell.append(statusButton);
+    row.append(actionCell);
     return row;
   }
 
   async function loadSuppliers() {
-    if (suppliersLoading) return;
-    suppliersLoading = true;
-    supplierError.hidden = true;
+    loadController?.abort();
+    const controller = new AbortController();
+    loadController = controller;
+    clearSupplierError();
     refreshSuppliersButton.disabled = true;
     refreshSuppliersButton.setAttribute("aria-busy", "true");
     if (!suppliersLoaded) {
@@ -223,26 +294,128 @@ downloadButton.addEventListener("click", downloadResults);
     }
 
     try {
-      const response = await fetch(suppliersUrl);
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.detail || "No se pudo cargar el directorio.");
+      const params = new URLSearchParams();
+      if (countryFilter.value) params.set("country", countryFilter.value);
+      if (categoryFilter.value) params.set("category", categoryFilter.value);
+      const query = params.size ? `?${params}` : "";
+      const response = await fetch(`${suppliersUrl}${query}`, { signal: controller.signal });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(apiErrorMessage(payload, "No se pudo cargar el directorio."));
+      }
 
-      supplierRows.replaceChildren(...payload.map(renderSupplier));
+      suppliers = payload;
+      supplierRows.replaceChildren(...suppliers.map(renderSupplier));
       suppliersLoaded = true;
-      supplierCount.textContent = `${payload.length} ${payload.length === 1 ? "proveedor" : "proveedores"}`;
-      supplierTableWrap.hidden = payload.length === 0;
-      supplierStatus.textContent = "No hay proveedores registrados.";
-      supplierStatus.hidden = payload.length > 0;
+      supplierCount.textContent = `${suppliers.length} ${suppliers.length === 1 ? "proveedor" : "proveedores"}`;
+      supplierTableWrap.hidden = suppliers.length === 0;
+      supplierStatus.textContent = "No hay proveedores con estos filtros.";
+      supplierStatus.hidden = suppliers.length > 0;
     } catch (error) {
+      if (error.name === "AbortError") return;
       supplierStatus.hidden = true;
-      supplierError.textContent = error.message?.toLowerCase().includes("fetch")
+      showSupplierError(error.message?.toLowerCase().includes("fetch")
         ? "No se pudo conectar con la API. Comprueba que FastAPI esté activo y que el puerto 8000 esté disponible."
-        : error.message || "No se pudo conectar con la API.";
-      supplierError.hidden = false;
+        : error.message || "No se pudo conectar con la API.");
     } finally {
-      suppliersLoading = false;
-      refreshSuppliersButton.disabled = false;
-      refreshSuppliersButton.removeAttribute("aria-busy");
+      if (loadController === controller) {
+        loadController = null;
+        refreshSuppliersButton.disabled = false;
+        refreshSuppliersButton.removeAttribute("aria-busy");
+      }
+    }
+  }
+
+  async function createSupplier(event) {
+    event.preventDefault();
+    supplierFormError.hidden = true;
+    supplierFormSuccess.hidden = true;
+    const formData = new FormData(createSupplierForm);
+    const productCategories = formData.getAll("product_categories");
+    if (productCategories.length === 0) {
+      supplierFormError.textContent = "Selecciona al menos una categoría de servicio.";
+      supplierFormError.hidden = false;
+      return;
+    }
+
+    const payload = {
+      name: formData.get("name"),
+      country: formData.get("country"),
+      product_categories: productCategories,
+      rate: formData.get("rate"),
+      status: formData.get("status"),
+    };
+    createSupplierButton.disabled = true;
+    createSupplierButton.textContent = "Registrando…";
+    try {
+      const response = await fetch(suppliersUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(apiErrorMessage(result, "La API rechazó los datos del proveedor."));
+      }
+
+      createSupplierForm.reset();
+      await loadSuppliers();
+      supplierFormSuccess.textContent = `Proveedor «${result.name}» registrado correctamente.`;
+      supplierFormSuccess.hidden = false;
+    } catch (error) {
+      supplierFormError.textContent = error.message?.toLowerCase().includes("fetch")
+        ? "No se pudo conectar con la API. Comprueba que FastAPI esté activo e inténtalo de nuevo."
+        : error.message || "No se pudo registrar el proveedor.";
+      supplierFormError.hidden = false;
+    } finally {
+      createSupplierButton.disabled = false;
+      createSupplierButton.textContent = "Registrar proveedor";
+    }
+  }
+
+  async function updateSupplierRate(form) {
+    const supplierId = form.dataset.supplierId;
+    const input = form.elements.rate;
+    const button = form.querySelector("button[type=submit]");
+    button.disabled = true;
+    clearSupplierError();
+    try {
+      const response = await fetch(`${suppliersUrl}/${supplierId}/rate`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rate: input.value }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(apiErrorMessage(result, "No se pudo actualizar la tarifa."));
+      }
+      replaceSupplier(result);
+    } catch (error) {
+      showSupplierError(error.message || "No se pudo actualizar la tarifa.");
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  async function updateSupplierStatus(button) {
+    const supplierId = button.dataset.supplierId;
+    const nextStatus = button.dataset.status;
+    button.disabled = true;
+    clearSupplierError();
+    try {
+      const response = await fetch(`${suppliersUrl}/${supplierId}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: nextStatus }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(apiErrorMessage(result, "No se pudo cambiar el estado."));
+      }
+      replaceSupplier(result);
+    } catch (error) {
+      showSupplierError(error.message || "No se pudo cambiar el estado.");
+      button.disabled = false;
     }
   }
 
@@ -266,6 +439,19 @@ downloadButton.addEventListener("click", downloadResults);
   }
 
   refreshSuppliersButton.addEventListener("click", loadSuppliers);
+  countryFilter.addEventListener("change", loadSuppliers);
+  categoryFilter.addEventListener("change", loadSuppliers);
+  createSupplierForm.addEventListener("submit", createSupplier);
+  supplierRows.addEventListener("submit", (event) => {
+    const rateForm = event.target.closest(".rate-editor");
+    if (!rateForm) return;
+    event.preventDefault();
+    updateSupplierRate(rateForm);
+  });
+  supplierRows.addEventListener("click", (event) => {
+    const statusButton = event.target.closest('button[data-action="status"]');
+    if (statusButton) updateSupplierStatus(statusButton);
+  });
   window.addEventListener("hashchange", syncDirectoryRoute);
   syncDirectoryRoute();
 })();
