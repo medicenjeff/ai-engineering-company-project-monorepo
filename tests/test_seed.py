@@ -10,7 +10,7 @@ from tinydb import TinyDB
 from ai_engineering_company_project_monorepo.seed import main, seed_suppliers
 
 
-def test_seed_validates_serializes_and_is_repeatablea(tmp_path: Path) -> None:
+def test_seed_validates_serializes_and_is_repeatable(tmp_path: Path) -> None:
     source_path = tmp_path / "suppliers.json"
     database_path = tmp_path / "nested" / "database.json"
     supplier_data = {

@@ -1,4 +1,5 @@
 function resolveApiBaseUrl() {
+  if (window.location.pathname.startsWith("/backoffice/")) return window.location.origin;
   const { hostname, protocol } = window.location;
   const forwardedHost = hostname.replace(/-5173(?=\.)/, "-8000");
   if (forwardedHost !== hostname) return `${protocol}//${forwardedHost}`;

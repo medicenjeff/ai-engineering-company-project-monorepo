@@ -4,6 +4,8 @@ Interfaz estática para analizar incidencias mediante `POST /api/incidents/analy
 
 ## Ejecución
 
+En Codespaces, arranca FastAPI y abre `/backoffice/` desde la URL reenviada del puerto 8000. La página y la API comparten origen, evitando solicitudes entre túneles privados. No es necesario hacer público el puerto ni iniciar un servidor estático separado.
+
 1. Arranca la API FastAPI en `http://127.0.0.1:8000`.
 2. Desde la raíz del repositorio ejecuta:
 
