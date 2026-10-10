@@ -32,6 +32,16 @@ Este repositorio es la **plantilla de inicio** para los proyectos transversales.
 
 ## Cómo entender este monorepo
 
+### Desarrollo TypeScript
+
+Los tipos y operaciones de Nexova están en [packages/shared](./packages/shared/README.es.md).
+Desde la raíz, instala dependencias y valida tipos, compilación y pruebas:
+
+```sh
+npm --prefix packages/shared ci
+npm --prefix packages/shared run validate
+```
+
 Estás construyendo **una sola empresa** a lo largo de muchos hitos y proyectos. Cada carpeta de primer nivel tiene **una responsabilidad clara** — como en un repositorio real de un equipo de ingeniería.
 
 | Capa                    | Carpetas                          | Qué vive aquí                                                               |

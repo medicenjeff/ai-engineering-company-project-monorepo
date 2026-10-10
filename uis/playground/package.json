@@ -1,0 +1,25 @@
+{
+  "name": "@repo/nexova-playground",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "npm run typecheck && esbuild app.ts --bundle --minify --outfile=dist/app.js && tailwindcss -i styles.css -o dist/styles.css --minify",
+    "serve": "http-server . -p 3000 -a 0.0.0.0 -c-1",
+    "test": "npm run build && playwright test",
+    "format": "prettier --write --config .prettierrc.json ../../packages/shared/index.ts ../../packages/shared/types/index.ts ../../packages/shared/tests/collections.test.cjs *.ts tests/*.ts index.html styles.css",
+    "format:check": "prettier --check --config .prettierrc.json ../../packages/shared/index.ts ../../packages/shared/types/index.ts ../../packages/shared/tests/collections.test.cjs *.ts tests/*.ts index.html styles.css"
+  },
+  "dependencies": {
+    "lucide": "^0.468.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.0",
+    "@tailwindcss/cli": "4.3.0",
+    "esbuild": "^0.25.0",
+    "http-server": "^14.1.1",
+    "prettier": "^3.6.2",
+    "tailwindcss": "4.3.0",
+    "typescript": "^5.9.3"
+  }
+}

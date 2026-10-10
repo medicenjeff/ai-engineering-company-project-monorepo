@@ -9,6 +9,10 @@ Los dos proyectos principales que se almacenan aquí son:
 
 Organiza `uis/` por **distintas áreas de la compañía** — cada subcarpeta agrupa un ámbito diferente (por ejemplo, web pública frente a operaciones internas) e incluye su propia documentación técnica y funcional.
 
+## Pruebas manuales TypeScript
+
+La página [playground/index.html](./playground/index.html) permite ejecutar filtros, búsquedas, ordenamiento y reportes sobre proveedores de Nexova. Usa Tailwind y las funciones reales del paquete compartido. Consulta [playground/README.es.md](./playground/README.es.md) para compilarla y servirla con `npx http-server . -p 3000 -a 0.0.0.0`.
+
 - **Propósito principal**: centralizar en un único lugar todas las aplicaciones frontend que dan soporte a los casos de uso de la compañía.
 - **Recomendación**: documenta en este archivo (o en sub-READMEs) las aplicaciones que vayas añadiendo, su objetivo, tecnología usada y cómo ejecutarlas.
 

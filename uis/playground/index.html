@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Operaciones y reportes de proveedores de Nexova." />
+    <title>Nexova · Proveedores</title>
+    <link rel="stylesheet" href="dist/styles.css?v=nexova-mint-2" />
+    <script src="dist/app.js" defer></script>
+  </head>
+  <body class="min-h-screen text-ink">
+    <header class="border-b border-gray-200 bg-white">
+      <div class="mx-auto flex max-w-7xl items-center justify-between gap-4 px-5 py-5 sm:px-8">
+        <div class="flex items-center gap-4">
+          <span class="text-2xl font-bold text-accent"
+            >Nexova<span class="text-amber-600">.</span></span
+          ><span class="hidden border-l border-gray-200 pl-4 text-sm text-gray-500 sm:block"
+            >Operaciones</span
+          >
+        </div>
+        <span class="text-xs text-gray-500">Datos de prueba</span>
+      </div>
+    </header>
+    <main class="mx-auto max-w-7xl px-5 py-8 sm:px-8">
+      <div class="mb-8 flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <p class="mb-2 text-xs font-bold uppercase text-accent">Directorio de servicios</p>
+          <h1 class="text-3xl font-bold">Proveedores</h1>
+        </div>
+        <button id="reset" class="secondary" title="Restablecer datos y controles">
+          <i data-lucide="rotate-ccw" aria-hidden="true"></i>Restablecer
+        </button>
+      </div>
+      <div
+        id="error"
+        role="alert"
+        class="mb-5 rounded border border-red-200 bg-red-50 p-4 text-sm text-red-800"
+        hidden
+      ></div>
+      <noscript><p>Activa JavaScript para ejecutar las operaciones.</p></noscript>
+      <div class="grid gap-8 lg:grid-cols-[280px_minmax(0,1fr)]">
+        <aside class="min-w-0 border-b border-gray-200 pb-8 lg:border-b-0 lg:border-r lg:pr-8">
+          <form id="filter-form" class="space-y-4">
+            <h2 class="section-title">
+              <i data-lucide="list-filter" aria-hidden="true"></i>Filtros
+            </h2>
+            <label
+              >name<input id="filter-name" placeholder="Nombre del proveedor" type="search"
+            /></label>
+            <label
+              >country<select id="filter-country">
+                <option value="">Todos</option>
+                <option>España</option>
+                <option>Estados Unidos</option>
+              </select></label
+            >
+            <label
+              >product_categories<select id="filter-category" class="text-xs">
+                <option value="">Todas</option>
+                <option value="executive_search">executive_search</option>
+                <option value="customer_service_outsourcing">customer_service_outsourcing</option>
+                <option value="corporate_training">corporate_training</option>
+              </select></label
+            >
+            <label
+              >status<select id="filter-status">
+                <option value="">Todos</option>
+                <option value="active">active</option>
+                <option value="suspended">suspended</option>
+              </select></label
+            >
+            <fieldset>
+              <legend class="text-xs font-bold text-gray-600">rate · USD / hora</legend>
+              <div class="grid grid-cols-2 gap-3">
+                <label class="mt-2"
+                  >Mínimo<input
+                    id="rate-min"
+                    type="number"
+                    min="0"
+                    step="any"
+                    placeholder="0" /></label
+                ><label class="mt-2"
+                  >Máximo<input id="rate-max" type="number" min="0" step="any" placeholder="150"
+                /></label>
+              </div>
+            </fieldset>
+            <button class="primary w-full" type="submit">
+              <i data-lucide="list-filter" aria-hidden="true"></i>Filtrar
+            </button>
+          </form>
+        </aside>
+        <div class="min-w-0">
+          <section class="border-b border-gray-200 pb-6">
+            <h2 class="section-title">
+              <i data-lucide="arrow-down-up" aria-hidden="true"></i>Ordenamiento
+            </h2>
+            <form
+              id="sort-form"
+              class="grid items-end gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_150px_minmax(0,1fr)_150px_auto]"
+            >
+              <label
+                >Campo principal<select id="sort-field">
+                  <option value="rate">rate</option>
+                  <option value="name">name</option>
+                  <option value="country">country</option>
+                  <option value="status">status</option>
+                  <option value="updated_at">updated_at</option>
+                </select></label
+              >
+              <label
+                >Dirección<select id="sort-direction">
+                  <option value="asc">Ascendente</option>
+                  <option value="desc">Descendente</option>
+                </select></label
+              >
+              <label
+                >Segundo campo<select id="sort-secondary">
+                  <option value="">Ninguno</option>
+                  <option value="rate">rate</option>
+                  <option value="name">name</option>
+                  <option value="country">country</option>
+                  <option value="status">status</option>
+                </select></label
+              >
+              <label
+                >Dirección secundaria<select id="sort-secondary-direction">
+                  <option value="asc">Ascendente</option>
+                  <option value="desc">Descendente</option>
+                </select></label
+              >
+              <button class="secondary" type="submit">
+                <i data-lucide="arrow-down-up" aria-hidden="true"></i>Ordenar
+              </button>
+            </form>
+          </section>
+          <section class="border-b border-gray-200 py-6">
+            <h2 class="section-title"><i data-lucide="search" aria-hidden="true"></i>Búsqueda</h2>
+            <form
+              id="search-form"
+              class="grid items-end gap-3 sm:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_auto]"
+            >
+              <label
+                >Método<select id="search-method">
+                  <option value="linear">Lineal</option>
+                  <option value="binary">Binaria</option>
+                </select></label
+              >
+              <label
+                >Campo<select id="search-field">
+                  <option value="name">name</option>
+                  <option value="rate">rate</option>
+                  <option value="country">country</option>
+                  <option value="status">status</option>
+                </select></label
+              >
+              <label
+                >Valor exacto<input
+                  id="search-value"
+                  required
+                  placeholder="Levante Executive Search"
+              /></label>
+              <button class="secondary" type="submit">
+                <i data-lucide="search" aria-hidden="true"></i>Buscar
+              </button>
+            </form>
+            <div id="search-result" role="status" class="mt-4 text-sm" hidden></div>
+          </section>
+          <section class="py-6" aria-labelledby="results-heading">
+            <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <h2 id="results-heading" class="text-base font-bold">
+                Resultados <span id="count" class="ml-2 text-gray-500">3</span>
+              </h2>
+              <p id="operation" role="status" class="text-xs text-gray-500">Datos iniciales</p>
+            </div>
+            <div class="overflow-x-auto border-y border-gray-200 bg-white">
+              <table class="w-full">
+                <caption class="sr-only">
+                  Proveedores resultantes de la operación
+                </caption>
+                <thead class="bg-gray-50">
+                  <tr>
+                    <th scope="col">name</th>
+                    <th scope="col">country</th>
+                    <th scope="col">product_categories</th>
+                    <th scope="col">rate</th>
+                    <th scope="col">status</th>
+                    <th scope="col">updated_at</th>
+                  </tr>
+                </thead>
+                <tbody id="rows" class="divide-y divide-gray-100"></tbody>
+              </table>
+            </div>
+            <p id="empty" class="py-8 text-center text-sm text-gray-500" hidden>
+              No hay proveedores que coincidan.
+            </p>
+          </section>
+          <section class="border-t border-gray-200 py-6" aria-labelledby="report-heading">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <h2 id="report-heading" class="section-title mb-0">
+                <i data-lucide="chart-no-axes-column" aria-hidden="true"></i>Reporte
+              </h2>
+              <button id="report" class="primary">
+                <i data-lucide="chart-no-axes-column" aria-hidden="true"></i>Generar reporte
+              </button>
+            </div>
+            <div id="report-result" class="mt-6" hidden>
+              <div
+                id="metrics"
+                class="grid grid-cols-2 gap-5 border-b border-gray-200 pb-6 sm:grid-cols-3 xl:grid-cols-5"
+              ></div>
+              <h3 class="mb-4 mt-6 text-xs font-bold text-gray-500">product_categories</h3>
+              <div id="categories" class="space-y-4"></div>
+            </div>
+          </section>
+          <details class="border-t border-gray-200 py-4">
+            <summary class="cursor-pointer text-sm font-bold text-gray-500">Resultado JSON</summary>
+            <pre
+              id="json"
+              class="mt-4 max-h-80 overflow-auto rounded bg-gray-900 p-4 text-xs text-green-100"
+            ></pre>
+          </details>
+        </div>
+      </div>
+    </main>
+  </body>
+</html>

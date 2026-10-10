@@ -1,0 +1,76 @@
+@import "tailwindcss";
+@source "./index.html";
+@source "./app.ts";
+
+@theme {
+  --color-ink: #202721;
+  --color-accent: #146b4a;
+}
+
+@layer base {
+  body {
+    font-family: "Trebuchet MS", "Verdana", sans-serif;
+    letter-spacing: 0;
+  }
+  label {
+    @apply block text-xs font-bold text-gray-600;
+  }
+  input,
+  select {
+    @apply mt-2 h-10 w-full min-w-0 rounded border border-gray-300 bg-white px-3 text-sm text-ink;
+  }
+  input:focus-visible,
+  select:focus-visible,
+  button:focus-visible,
+  summary:focus-visible {
+    @apply outline outline-2 outline-offset-2 outline-accent;
+  }
+  button {
+    @apply inline-flex min-h-10 items-center justify-center gap-2 rounded px-4 text-sm font-bold;
+  }
+  button:disabled {
+    @apply cursor-not-allowed opacity-40;
+  }
+  th {
+    @apply whitespace-nowrap px-4 py-3 text-left text-xs font-bold text-gray-500;
+  }
+  td {
+    @apply px-4 py-4 text-sm align-top;
+  }
+  svg {
+    @apply h-4 w-4 shrink-0;
+  }
+}
+
+@layer components {
+  .primary {
+    @apply bg-accent text-white hover:bg-green-800;
+  }
+  .secondary {
+    @apply border border-gray-300 bg-white text-ink hover:bg-gray-100;
+  }
+  .section-title {
+    @apply mb-5 flex items-center gap-2 text-base font-bold text-ink;
+  }
+}
+
+body {
+  background: #d2e8dc;
+  background-image: linear-gradient(90deg, #c3dccf 1px, transparent 1px);
+  background-size: 80px 100%;
+}
+@media (prefers-reduced-motion: no-preference) {
+  main {
+    animation: arrive 240ms ease-out;
+  }
+  @keyframes arrive {
+    from {
+      opacity: 0;
+      transform: translateY(5px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
