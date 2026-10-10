@@ -1,0 +1,11 @@
+{
+  "name": "@repo/nexova-backoffice",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --hostname 0.0.0.0 --port 5173",
+    "build": "next build",
+    "start": "next start --hostname 0.0.0.0 --port 5173"
+  },
+  "dependencies": {"next": "^16.0.0", "react": "^19.2.0", "react-dom": "^19.2.0", "cheerio": "^1.1.2"},
+  "devDependencies": {"typescript": "^5.9.3", "@types/react": "^19.2.0", "@types/react-dom": "^19.2.0", "@types/node": "^22.0.0"}
+}

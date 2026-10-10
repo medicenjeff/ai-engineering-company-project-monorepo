@@ -1,0 +1,8 @@
+{
+  "name": "nexova-monorepo",
+  "private": true,
+  "workspaces": ["uis/backoffice", "uis/playground", "packages/shared"],
+  "scripts": {
+    "build:uis": "npm run build --workspace @repo/nexova-backoffice && npm run build --workspace @repo/nexova-playground"
+  }
+}

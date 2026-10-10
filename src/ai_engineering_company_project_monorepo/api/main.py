@@ -5,7 +5,6 @@ from typing import AsyncIterator
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from tinydb import TinyDB
 
 from ai_engineering_company_project_monorepo.api.auth import router as auth_router
@@ -43,7 +42,3 @@ app.include_router(incidents_router)
 app.include_router(users_router)
 app.include_router(profiles_router)
 app.include_router(suppliers_router)
-
-backoffice_path = Path(__file__).resolve().parents[3] / "uis" / "backoffice"
-if backoffice_path.is_dir():
-    app.mount("/backoffice", StaticFiles(directory=backoffice_path, html=True), name="backoffice")

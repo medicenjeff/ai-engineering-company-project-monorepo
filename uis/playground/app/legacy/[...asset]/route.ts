@@ -1,0 +1,1 @@
+export { legacyAsset as GET } from "../../../../../packages/shared/frontend/legacy-assets";

@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { authenticatePage } from "./session";
 import { crearProveedor, type Proveedor, type CriterioOrden } from "../../../packages/shared/index";
 import {
   crearEstadoVista,
@@ -61,24 +62,26 @@ test("operaciones puras manejan vacíos, ausencia y números inválidos", (): vo
 });
 
 test("filtros, ordenamiento y ambas búsquedas", async ({ page }: { page: Page }): Promise<void> => {
+  await authenticatePage(page);
   await page.goto("/");
-  await expect(page.locator("#rows tr")).toHaveCount(3);
-  await page.selectOption("#filter-status", "active");
-  await page.getByRole("button", { name: "Filtrar", exact: true }).click();
-  await expect(page.locator("#rows tr")).toHaveCount(2);
-  await page.selectOption("#sort-direction", "desc");
-  await page.getByRole("button", { name: "Ordenar", exact: true }).click();
-  await expect(page.locator("#rows tr").first()).toContainText("Levante");
-  await page.selectOption("#search-field", "rate");
-  await page.fill("#search-value", "42.5");
+  const view = page.frameLocator("iframe");
+  await expect(view.locator("#rows tr")).toHaveCount(3);
+  await view.locator("#filter-status").selectOption("active");
+  await view.getByRole("button", { name: "Filtrar", exact: true }).click();
+  await expect(view.locator("#rows tr")).toHaveCount(2);
+  await view.locator("#sort-direction").selectOption("desc");
+  await view.getByRole("button", { name: "Ordenar", exact: true }).click();
+  await expect(view.locator("#rows tr").first()).toContainText("Levante");
+  await view.locator("#search-field").selectOption("rate");
+  await view.locator("#search-value").fill("42.5");
   for (const metodo of ["linear", "binary"]) {
-    await page.selectOption("#search-method", metodo);
-    await page.getByRole("button", { name: "Buscar", exact: true }).click();
-    await expect(page.locator("#search-result")).toContainText("Northstar CX Partners");
+    await view.locator("#search-method").selectOption(metodo);
+    await view.getByRole("button", { name: "Buscar", exact: true }).click();
+    await expect(view.locator("#search-result")).toContainText("Northstar CX Partners");
   }
-  await page.fill("#search-value", "90");
-  await page.getByRole("button", { name: "Buscar", exact: true }).click();
-  await expect(page.locator("#search-result")).toHaveText("Sin coincidencias");
+  await view.locator("#search-value").fill("90");
+  await view.getByRole("button", { name: "Buscar", exact: true }).click();
+  await expect(view.locator("#search-result")).toHaveText("Sin coincidencias");
 });
 
 test("reportes, datos vacíos, errores y restablecimiento", async ({
@@ -86,22 +89,24 @@ test("reportes, datos vacíos, errores y restablecimiento", async ({
 }: {
   page: Page;
 }): Promise<void> => {
+  await authenticatePage(page);
   await page.goto("/");
-  await page.getByRole("button", { name: "Generar reporte" }).click();
-  await expect(page.locator("#json")).toContainText('"total": 247.5');
-  await expect(page.locator("#categories")).toContainText("executive_search · 1");
-  await page.fill("#rate-min", "150");
-  await page.fill("#rate-max", "20");
-  await page.getByRole("button", { name: "Filtrar", exact: true }).click();
-  await expect(page.getByRole("alert")).toContainText("mínima no puede superar");
-  await page.fill("#rate-max", "200");
-  await page.getByRole("button", { name: "Filtrar", exact: true }).click();
-  await expect(page.locator("#empty")).toBeVisible();
-  await page.getByRole("button", { name: "Generar reporte" }).click();
-  await expect(page.locator("#json")).toContainText('"promedio": null');
-  await page.getByRole("button", { name: "Restablecer", exact: true }).click();
-  await expect(page.locator("#rows tr")).toHaveCount(3);
-  await expect(page.locator("#report-result")).toBeHidden();
+  const view = page.frameLocator("iframe");
+  await view.getByRole("button", { name: "Generar reporte" }).click();
+  await expect(view.locator("#json")).toContainText('"total": 247.5');
+  await expect(view.locator("#categories")).toContainText("executive_search · 1");
+  await view.locator("#rate-min").fill("150");
+  await view.locator("#rate-max").fill("20");
+  await view.getByRole("button", { name: "Filtrar", exact: true }).click();
+  await expect(view.getByRole("alert")).toContainText("mínima no puede superar");
+  await view.locator("#rate-max").fill("200");
+  await view.getByRole("button", { name: "Filtrar", exact: true }).click();
+  await expect(view.locator("#empty")).toBeVisible();
+  await view.getByRole("button", { name: "Generar reporte" }).click();
+  await expect(view.locator("#json")).toContainText('"promedio": null');
+  await view.getByRole("button", { name: "Restablecer", exact: true }).click();
+  await expect(view.locator("#rows tr")).toHaveCount(3);
+  await expect(view.locator("#report-result")).toBeHidden();
 });
 
 for (const viewport of [
@@ -118,13 +123,15 @@ for (const viewport of [
       errores.push(error.message);
     });
     await page.setViewportSize(viewport);
+    await authenticatePage(page);
     await page.goto("/");
-    await expect(page.locator("#rows tr")).toHaveCount(3);
-    await expect(page.locator("button svg").first()).toBeVisible();
+    const view = page.frameLocator("iframe");
+    await expect(view.locator("#rows tr")).toHaveCount(3);
+    await expect(view.locator("button svg").first()).toBeVisible();
     expect(
       await page.evaluate((): boolean => document.documentElement.scrollWidth <= innerWidth),
     ).toBe(true);
-    await page.getByRole("button", { name: "Generar reporte" }).click();
+    await view.getByRole("button", { name: "Generar reporte" }).click();
     await page.screenshot({
       path: `test-results/proveedores-${viewport.width}.png`,
       fullPage: true,

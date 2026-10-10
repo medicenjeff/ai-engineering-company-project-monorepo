@@ -1,21 +1,25 @@
 # Pruebas manuales de Nexova
 
-Página HTML con Tailwind CSS e iconos Lucide. Ejecuta directamente las funciones TypeScript de `packages/shared/index.ts`, compiladas para el navegador, sin backend ni CDN.
+Aplicación Next.js con sesión protegida y pantalla operativa Tailwind/Lucide. Las operaciones de proveedores siguen ejecutando las funciones TypeScript de `packages/shared/index.ts` con datos de prueba; la autenticación y la gestión de cuenta usan FastAPI.
 
 ## Ejecución
 
 Desde la raíz del repositorio:
 
 ```sh
-cd uis/playground
 npm ci
-npm run build
-npx http-server . -p 3000 -a 0.0.0.0
+npm run dev --workspace @repo/nexova-playground
 ```
 
-Abre `http://localhost:3000`. En Codespaces, abre el puerto 3000 desde la pestaña Ports. También puedes servir desde la raíz con `npx http-server . -p 3000 -a 0.0.0.0` y abrir `/uis/playground/`.
+Arranca también FastAPI en el puerto 8000 con `JWT_SECRET_KEY` configurado. Abre `http://localhost:3000` o el puerto 3000 reenviado de Codespaces. No sirvas esta carpeta con `http-server`: las vistas protegidas dependen de Next.js. `FASTAPI_URL` permite cambiar la dirección interna de FastAPI; el navegador usa el proxy de mismo origen `/api/backend`.
 
-Después de modificar las funciones o la interfaz, ejecuta `npm run build` y recarga el navegador. `npm run serve` sirve esta carpeta sin caché. La compilación genera `dist/app.js` y `dist/styles.css`; es necesaria antes de servir la página.
+`npm run dev` compila primero los assets operativos. `npm run build` genera esos assets y la app Next.js; `npm run start` sirve la compilación de producción. Si cambias `app.ts` durante desarrollo, recompila con `npm run build:legacy`.
+
+## Autenticación
+
+La vista `/account/profile`, accesible desde «Mi perfil», muestra el email y los campos `name`, `phone` y `address` recibidos de `GET /auth/me`. Permite editar el perfil con `PUT /profiles/me` y `Authorization: Bearer`, muestra el resultado del guardado y requiere sesion. `/account` conserva la gestion de credenciales.
+
+`/login`, `/register` y `/account` usan el flujo compartido con el backoffice. El registro crea el usuario y realiza login, el token se guarda en `localStorage` (`nexova.access_token`) y se adjunta mediante `Authorization: Bearer`. La vista operativa solo se monta tras validar `/auth/me`. Logout elimina el token y redirige al login; los `401` de la API hacen lo mismo. El almacenamiento es independiente por origen, por lo que cada aplicación requiere su propio login. No se aplica esta protección al website público.
 
 ## Operaciones
 
@@ -52,6 +56,6 @@ npx playwright install chromium
 npm test
 ```
 
-Las pruebas de navegador cubren operaciones, datos vacíos, errores y vistas de escritorio/móvil. Usan un servidor temporal en el puerto 3001 y generan capturas en `test-results/`.
+Las pruebas cubren operaciones, sesión, registro, perfil, logout, errores, JWT inválidos y escritorio/móvil. Usan Next.js en 3001/5174 y una API FastAPI temporal en 8002 con base aislada, sin modificar `data/auth.json`. Generan capturas en `test-results/`. Compila ambas apps desde la raíz con `npm run build:uis` antes de ejecutar Playwright.
 
 En contenedores Linux pueden faltar bibliotecas del sistema para Chromium. En ese caso, instala sus dependencias con `npx playwright install --with-deps chromium` desde tu terminal (puede requerir permisos de administrador). Esta instalación solo es necesaria para las pruebas automatizadas, no para servir la página ni usarla desde tu navegador.

@@ -4,16 +4,26 @@
   "private": true,
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "build": "npm run typecheck && esbuild app.ts --bundle --minify --outfile=dist/app.js && tailwindcss -i styles.css -o dist/styles.css --minify",
-    "serve": "http-server . -p 3000 -a 0.0.0.0 -c-1",
-    "test": "npm run build && playwright test",
+    "build:legacy": "npm run typecheck && esbuild app.ts --bundle --minify --outfile=dist/app.js && tailwindcss -i styles.css -o dist/styles.css --minify",
+    "build": "npm run build:legacy && next build",
+    "dev": "npm run build:legacy && next dev --hostname 0.0.0.0 --port 3000",
+    "serve": "npm run dev",
+    "start": "next start --hostname 0.0.0.0 --port 3000",
+    "test": "npm run build --workspace @repo/nexova-backoffice && npm run build && playwright test",
     "format": "prettier --write --config .prettierrc.json ../../packages/shared/index.ts ../../packages/shared/types/index.ts ../../packages/shared/tests/collections.test.cjs *.ts tests/*.ts index.html styles.css",
     "format:check": "prettier --check --config .prettierrc.json ../../packages/shared/index.ts ../../packages/shared/types/index.ts ../../packages/shared/tests/collections.test.cjs *.ts tests/*.ts index.html styles.css"
   },
   "dependencies": {
+    "next": "^16.0.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "cheerio": "^1.1.2",
     "lucide": "^0.468.0"
   },
   "devDependencies": {
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@types/node": "^22.0.0",
     "@playwright/test": "^1.56.0",
     "@tailwindcss/cli": "4.3.0",
     "esbuild": "^0.25.0",

@@ -242,8 +242,10 @@ downloadButton.addEventListener("click", downloadResults);
     rateEditor.className = "rate-editor";
     rateEditor.dataset.supplierId = supplier.id;
     const rateLabel = document.createElement("label");
-    rateLabel.className = "visually-hidden";
-    rateLabel.textContent = `Tarifa por hora en USD para ${supplier.name}`;
+    const rateDescription = document.createElement("span");
+    rateDescription.className = "visually-hidden";
+    rateDescription.textContent = `Tarifa por hora en USD para ${supplier.name}`;
+    rateLabel.append(rateDescription);
     const rateInput = document.createElement("input");
     rateInput.type = "number";
     rateInput.name = "rate";
@@ -421,7 +423,7 @@ downloadButton.addEventListener("click", downloadResults);
   }
 
   function syncDirectoryRoute() {
-    const hash = window.location.hash;
+    const hash = window.parent.location.hash;
     if (hash !== "#analysis" && hash !== "#suppliers") return;
 
     const showSuppliers = hash === "#suppliers";
