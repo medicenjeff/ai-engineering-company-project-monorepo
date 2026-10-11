@@ -13,6 +13,10 @@ button:disabled { opacity: .6; cursor: wait; }
 a { color: #0b514d; }
 .auth-error { padding: 12px; color: #8e3229; background: #fff0ed; border-left: 3px solid #c94b3d; overflow-wrap: anywhere; }
 .auth-field { display: grid; gap: 7px; }
+.auth-recovery-fields { display: grid; gap: 16px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.auth-recovery-fields input { width: 100%; box-sizing: border-box; }
+.auth-recovery-fields:disabled button { opacity: .6; cursor: not-allowed; }
+.auth-success { overflow-wrap: anywhere; }
 .auth-field small { color: #56655e; font-weight: normal; }
 .auth-field-error { margin: 0; color: #8e3229; font-size: 13px; overflow-wrap: anywhere; }
 .auth-field input[aria-invalid="true"] { border-color: #c94b3d; }

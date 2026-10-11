@@ -1,7 +1,233 @@
 import { test, expect } from "@playwright/test";
 import { account, token, authenticatePage } from "./session";
 
-for (const path of ["/", "/account", "/account/profile", "/suppliers", "/analysis"]) {
+test("recuperacion solicita enlace una sola vez y desactiva el formulario", async ({ page }) => {
+  let calls = 0;
+  await page.route("**/api/backend/auth/forgot-password", async (route) => {
+    calls += 1;
+    expect(route.request().method()).toBe("POST");
+    expect(route.request().postDataJSON()).toEqual({ email: "recover@example.com" });
+    await route.fulfill({ json: { message: "Generic response" } });
+  });
+  await page.goto("/login");
+  await page.getByRole("link", { name: "¿Olvidaste tu contraseña?" }).click();
+  await expect(page.getByRole("heading", { name: "Recuperar contraseña" })).toBeVisible();
+  await page.getByLabel("Email", { exact: true }).fill("recover@example.com");
+  await page.getByRole("button", { name: "Enviar enlace" }).click();
+  await expect(page.getByRole("status")).toHaveText("Si esa dirección está registrada, recibirás un enlace en breve");
+  await expect(page.getByLabel("Email", { exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Enlace solicitado" })).toBeDisabled();
+  await page.locator("form").evaluate((form) => form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+  expect(calls).toBe(1);
+});
+
+test("restablecimiento valida confirmacion y redirige al login con exito", async ({ page }) => {
+  let calls = 0;
+  await page.route("**/api/backend/auth/reset-password", async (route) => {
+    calls += 1;
+    expect(route.request().postDataJSON()).toEqual({ token: "reset-token", new_password: "new-secure-password" });
+    await route.fulfill({ json: { message: "Password reset successfully." } });
+  });
+  await page.goto("/reset-password?token=reset-token");
+  await page.getByLabel("Nueva contraseña", { exact: true }).fill("new-secure-password");
+  await page.getByLabel("Confirmar contraseña", { exact: true }).fill("different-password");
+  await page.getByRole("button", { name: "Restablecer contraseña" }).click();
+  await expect(page.locator(".auth-panel").getByRole("alert")).toHaveText("Las contraseñas no coinciden.");
+  expect(calls).toBe(0);
+  await page.getByLabel("Confirmar contraseña", { exact: true }).fill("new-secure-password");
+  await page.getByRole("button", { name: "Restablecer contraseña" }).click();
+  await expect(page).toHaveURL(/\/login$/);
+  await expect(page.getByRole("status")).toHaveText("Tu contraseña se ha restablecido. Ya puedes iniciar sesión.");
+  expect(calls).toBe(1);
+});
+
+test("restablecimiento rechazado muestra error y vuelta a recuperacion", async ({ page }) => {
+  await page.route("**/api/backend/auth/reset-password", (route) => route.fulfill({ status: 400, json: { detail: "Invalid or expired reset token" } }));
+  await page.goto("/reset-password?token=expired-token");
+  await page.getByLabel("Nueva contraseña", { exact: true }).fill("new-secure-password");
+  await page.getByLabel("Confirmar contraseña", { exact: true }).fill("new-secure-password");
+  await page.getByRole("button", { name: "Restablecer contraseña" }).click();
+  await expect(page.locator(".auth-panel").getByRole("alert")).toContainText("ha expirado o ya se ha utilizado");
+  await page.getByRole("link", { name: "Solicitar un nuevo enlace" }).click();
+  await expect(page).toHaveURL(/\/forgot-password$/);
+  await expect(page.getByLabel("Email", { exact: true })).toBeEnabled();
+});
+
+test("recuperacion bloquea peticiones pendientes y permite reintentar fallos de red", async ({ page }) => {
+  let release = () => {};
+  const pending = new Promise<void>((resolve) => { release = resolve; });
+  let calls = 0;
+  await page.route("**/api/backend/auth/forgot-password", async (route) => {
+    calls += 1;
+    if (calls === 1) {
+      await pending;
+      return route.abort("failed");
+    }
+    return route.fulfill({ json: { message: "OK" } });
+  });
+  await page.goto("/forgot-password");
+  await page.getByLabel("Email", { exact: true }).fill("recover@example.com");
+  await page.getByRole("button", { name: "Enviar enlace" }).click();
+  await expect(page.getByRole("button", { name: "Procesando..." })).toBeDisabled();
+  await expect(page.getByLabel("Email", { exact: true })).toBeDisabled();
+  await page.locator("form").evaluate((form) => form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+  release();
+  await expect(page.locator(".auth-panel").getByRole("alert")).toContainText("Comprueba tu conexión");
+  await expect(page.getByRole("button", { name: "Enviar enlace" })).toBeEnabled();
+  expect(calls).toBe(1);
+  await page.getByRole("button", { name: "Enviar enlace" }).click();
+  await expect(page.getByRole("status")).toContainText("recibirás un enlace en breve");
+  expect(calls).toBe(2);
+});
+
+test("restablecimiento sin token no envia peticiones", async ({ page }) => {
+  const requests: string[] = [];
+  page.on("request", (request) => {
+    if (request.url().includes("/api/backend/")) requests.push(request.url());
+  });
+  await page.goto("/reset-password");
+  await expect(page.locator(".auth-panel").getByRole("alert")).toContainText("no contiene un token válido");
+  await expect(page.getByRole("button", { name: "Restablecer contraseña" })).toBeDisabled();
+  await expect(page.getByRole("link", { name: "Solicitar un nuevo enlace" })).toHaveAttribute("href", "/forgot-password");
+  expect(requests).toEqual([]);
+});
+
+test("recuperacion es publica incluso con sesion y se adapta a movil", async ({ page }, testInfo) => {
+  await page.addInitScript(() => localStorage.setItem("nexova.access_token", "existing-session"));
+  const requests: string[] = [];
+  page.on("request", (request) => {
+    if (request.url().includes("/api/backend/")) requests.push(request.url());
+  });
+  for (const viewport of [{ width: 1280, height: 800 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    for (const path of ["/forgot-password", "/reset-password?token=mobile-token"]) {
+      await page.goto(path);
+      await expect(page.locator("h1")).toHaveText(path.startsWith("/forgot") ? "Recuperar contraseña" : "Restablecer contraseña");
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      const panel = await page.locator(".auth-panel").boundingBox();
+      const button = await page.getByRole("button").boundingBox();
+      expect(panel).not.toBeNull();
+      expect(button).not.toBeNull();
+      expect(button!.x).toBeGreaterThanOrEqual(panel!.x);
+      expect(button!.x + button!.width).toBeLessThanOrEqual(panel!.x + panel!.width);
+      await page.screenshot({ path: `test-results/${testInfo.project.name}-${path.startsWith("/forgot") ? "forgot" : "reset"}-${viewport.width}.png`, fullPage: true });
+    }
+  }
+  expect(requests).toEqual([]);
+});
+
+test("cambio de contrasena valida confirmacion y envia Bearer sin confirmacion", async ({ page }, testInfo) => {
+  await authenticatePage(page);
+  let calls = 0;
+  await page.route("**/api/backend/auth/change-password", async (route) => {
+    calls += 1;
+    expect(route.request().method()).toBe("POST");
+    expect(route.request().headers().authorization).toBe(`Bearer ${token}`);
+    expect(route.request().postDataJSON()).toEqual({ current_password: "current-password", new_password: "new-secure-password" });
+    await route.fulfill({ json: { message: "Password changed successfully." } });
+  });
+  await page.goto("/account");
+  await page.getByRole("link", { name: "Cambiar contraseña", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Cambiar contraseña", exact: true })).toBeVisible();
+  await expect(page.locator("iframe")).toHaveCount(0);
+  await page.getByLabel("Contraseña actual", { exact: true }).fill("current-password");
+  await page.getByLabel("Nueva contraseña", { exact: true }).fill("new-secure-password");
+  await page.getByLabel("Confirmar contraseña", { exact: true }).fill("different-password");
+  await page.getByRole("button", { name: "Guardar contraseña" }).click();
+  await expect(page.locator(".account-page").getByRole("alert")).toHaveText("Las contraseñas no coinciden.");
+  expect(calls).toBe(0);
+  await page.getByLabel("Confirmar contraseña", { exact: true }).fill("new-secure-password");
+  for (const viewport of [{ width: 1280, height: 800 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: `test-results/${testInfo.project.name}-change-password-${viewport.width}.png`, fullPage: true });
+  }
+  await page.getByRole("button", { name: "Guardar contraseña" }).click();
+  await expect(page.locator(".account-page").getByRole("status")).toHaveText("Tu contraseña se ha actualizado correctamente.");
+  for (const label of ["Contraseña actual", "Nueva contraseña", "Confirmar contraseña"]) {
+    await expect(page.getByLabel(label, { exact: true })).toHaveValue("");
+  }
+  expect(calls).toBe(1);
+  expect(await page.evaluate(() => localStorage.getItem("nexova.access_token"))).toBe(token);
+});
+
+test("cambio de contrasena permite corregir la contrasena actual incorrecta", async ({ page }) => {
+  await authenticatePage(page);
+  let calls = 0;
+  await page.route("**/api/backend/auth/change-password", (route) => {
+    calls += 1;
+    return route.fulfill(calls === 1 ? { status: 400, json: { detail: "Current password is incorrect" } } : { json: { message: "OK" } });
+  });
+  await page.goto("/account/change-password");
+  await page.getByLabel("Contraseña actual", { exact: true }).fill("incorrect-password");
+  await page.getByLabel("Nueva contraseña", { exact: true }).fill("new-secure-password");
+  await page.getByLabel("Confirmar contraseña", { exact: true }).fill("new-secure-password");
+  await page.getByRole("button", { name: "Guardar contraseña" }).click();
+  await expect(page.locator(".account-page").getByRole("alert")).toHaveText("La contraseña actual es incorrecta.");
+  await expect(page.getByLabel("Contraseña actual", { exact: true })).toHaveAttribute("aria-invalid", "true");
+  await page.getByLabel("Contraseña actual", { exact: true }).fill("correct-password");
+  await page.getByRole("button", { name: "Guardar contraseña" }).click();
+  await expect(page.locator(".account-page").getByRole("status")).toContainText("actualizado correctamente");
+  expect(calls).toBe(2);
+});
+
+test("cambio de contrasena rechaza contrasenas que superan el limite UTF-8", async ({ page }) => {
+  await authenticatePage(page);
+  let calls = 0;
+  await page.route("**/api/backend/auth/change-password", (route) => { calls += 1; return route.fulfill({ json: {} }); });
+  await page.goto("/account/change-password");
+  await page.getByLabel("Contraseña actual", { exact: true }).fill("current-password");
+  await page.getByLabel("Nueva contraseña", { exact: true }).fill("é".repeat(37));
+  await page.getByLabel("Confirmar contraseña", { exact: true }).fill("é".repeat(37));
+  await page.getByRole("button", { name: "Guardar contraseña" }).click();
+  await expect(page.locator(".account-page").getByRole("alert")).toContainText("72 bytes UTF-8");
+  expect(calls).toBe(0);
+});
+
+test("cambio de contrasena bloquea duplicados pendientes y permite reintentar fallo de red", async ({ page }) => {
+  await authenticatePage(page);
+  let calls = 0;
+  let release = () => {};
+  const pending = new Promise<void>((resolve) => { release = resolve; });
+  await page.route("**/api/backend/auth/change-password", async (route) => {
+    calls += 1;
+    if (calls === 1) {
+      await pending;
+      return route.abort("failed");
+    }
+    return route.fulfill({ json: { message: "OK" } });
+  });
+  await page.goto("/account/change-password");
+  await page.getByLabel("Contraseña actual", { exact: true }).fill("current-password");
+  await page.getByLabel("Nueva contraseña", { exact: true }).fill("new-secure-password");
+  await page.getByLabel("Confirmar contraseña", { exact: true }).fill("new-secure-password");
+  await page.getByRole("button", { name: "Guardar contraseña" }).click();
+  await expect(page.getByRole("button", { name: "Procesando..." })).toBeDisabled();
+  await expect(page.getByLabel("Contraseña actual", { exact: true })).toBeDisabled();
+  await page.locator("form").evaluate((form) => form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+  release();
+  await expect(page.locator(".account-page").getByRole("alert")).toContainText("No se pudo cambiar la contraseña");
+  expect(calls).toBe(1);
+  await expect(page.getByRole("button", { name: "Guardar contraseña" })).toBeEnabled();
+  await page.getByRole("button", { name: "Guardar contraseña" }).click();
+  await expect(page.locator(".account-page").getByRole("status")).toContainText("actualizado correctamente");
+  expect(calls).toBe(2);
+});
+
+test("cambio de contrasena redirige al login cuando caduca la sesion", async ({ page }) => {
+  await authenticatePage(page);
+  await page.route("**/api/backend/auth/change-password", (route) => route.fulfill({ status: 401, json: { detail: "Invalid token" } }));
+  await page.goto("/account/change-password");
+  await page.getByLabel("Contraseña actual", { exact: true }).fill("current-password");
+  await page.getByLabel("Nueva contraseña", { exact: true }).fill("new-secure-password");
+  await page.getByLabel("Confirmar contraseña", { exact: true }).fill("new-secure-password");
+  await page.getByRole("button", { name: "Guardar contraseña" }).click();
+  await expect(page).toHaveURL(/\/login$/);
+  expect(await page.evaluate(() => localStorage.getItem("nexova.access_token"))).toBeNull();
+  await expect(page.getByRole("link", { name: "¿Olvidaste tu contraseña?" })).toHaveAttribute("href", "/forgot-password");
+});
+
+for (const path of ["/", "/account", "/account/profile", "/account/change-password", "/suppliers", "/analysis"]) {
   for (const session of ["absent", "invalid"]) {
     test(`ruta ${path} requiere sesion ${session}`, async ({ page }) => {
       if (session === "invalid") {
