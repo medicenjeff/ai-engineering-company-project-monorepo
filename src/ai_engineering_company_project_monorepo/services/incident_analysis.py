@@ -2,26 +2,15 @@ from typing import Any
 
 import pandas as pd
 
-REQUIRED_COLUMNS = (
-    "incident_id",
-    "category",
-    "title",
-    "description",
-    "status",
-    "priority",
-    "created_at",
-    "assigned_to",
+from ai_engineering_company_project_monorepo.shared.incident_constants import (
+    ALLOWED_PRIORITY,
+    ALLOWED_STATUS,
+    CLOSED_STATUSES,
+    REQUIRED_COLUMNS_ANALYZER,
+    STATUS_LABELS,
 )
-ALLOWED_STATUS = {"open", "pending", "resolved", "closed", "discarded"}
-ALLOWED_PRIORITY = {"low", "medium", "high"}
-STATUS_LABELS = {
-    "open": "abierto",
-    "pending": "pendiente",
-    "resolved": "cerrado",
-    "closed": "cerrado",
-    "discarded": "descartado",
-}
-CLOSED_STATUSES = {"resolved", "closed"}
+
+REQUIRED_COLUMNS = REQUIRED_COLUMNS_ANALYZER
 
 
 def validate_dataframe(dataframe: pd.DataFrame) -> dict[str, list[int]]:
