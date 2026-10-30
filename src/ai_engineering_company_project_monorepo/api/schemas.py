@@ -2,6 +2,11 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
+from ai_engineering_company_project_monorepo.models.incident import (
+    IncidentCategory,
+    IncidentOrigin,
+    IncidentStatus,
+)
 from ai_engineering_company_project_monorepo.models.user import UserRole
 
 
@@ -153,3 +158,65 @@ class AuthMeResponse(BaseModel):
     email: EmailStr
     role: UserRole
     profile: AuthProfileResponse | None
+
+
+# ── Incidents ────────────────────────────────────────────────────────────
+
+
+class IncidentCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(min_length=1)
+    description: str = Field(min_length=1)
+    category: IncidentCategory | None = None
+    origin: IncidentOrigin = IncidentOrigin.INTERNAL
+    branch: str = "central"
+
+    @field_validator("title")
+    @classmethod
+    def title_not_empty(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("title must not be empty")
+        return stripped
+
+    @field_validator("description")
+    @classmethod
+    def description_not_empty(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("description must not be empty")
+        return stripped
+
+    @field_validator("branch")
+    @classmethod
+    def branch_not_empty(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("branch must not be empty")
+        return stripped
+
+
+class IncidentUpdateStatus(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: IncidentStatus
+
+
+class IncidentResponse(BaseModel):
+    id: str
+    title: str
+    description: str
+    category: str | None
+    status: str
+    origin: str
+    branch: str
+    created_at: str
+    updated_at: str
+
+
+class IncidentSummary(BaseModel):
+    by_status: dict[str, int]
+    by_category: dict[str, int]
+    by_origin: dict[str, int]
+    by_branch: dict[str, int]

@@ -44,9 +44,9 @@ def test_create_supplier_returns_tinydb_id_and_rejects_invalid_data(
         json={key: value for key, value in supplier_payload().items() if key != "country"},
     )
 
-    assert invalid_rate.status_code == 422
-    assert invalid_category.status_code == 422
-    assert missing_country.status_code == 422
+    assert invalid_rate.status_code == 400
+    assert invalid_category.status_code == 400
+    assert missing_country.status_code == 400
 
 
 def test_list_suppliers_filters_by_country_and_category(client: TestClient) -> None:
@@ -66,7 +66,7 @@ def test_list_suppliers_filters_by_country_and_category(client: TestClient) -> N
     assert len(
         client.get("/suppliers", params={"category": "customer_service_outsourcing"}).json()
     ) == 1
-    assert client.get("/suppliers", params={"category": "unknown"}).status_code == 422
+    assert client.get("/suppliers", params={"category": "unknown"}).status_code == 400
 
 
 def test_get_supplier_and_patch_rate(client: TestClient) -> None:
@@ -81,7 +81,7 @@ def test_get_supplier_and_patch_rate(client: TestClient) -> None:
     assert updated.status_code == 200
     assert updated.json()["rate"] == "150.25"
     assert updated.json()["updated_at"] >= created["updated_at"]
-    assert client.patch(f"/suppliers/{supplier_id}/rate", json={"rate": 0}).status_code == 422
+    assert client.patch(f"/suppliers/{supplier_id}/rate", json={"rate": 0}).status_code == 400
     assert client.patch("/suppliers/999/rate", json={"rate": 150}).status_code == 404
 
 
@@ -107,7 +107,7 @@ def test_patch_supplier_status_accepts_only_context_statuses(client: TestClient)
     assert client.patch(
         f"/suppliers/{supplier_id}/status",
         json={"status": "pending"},
-    ).status_code == 422
+    ).status_code == 400
     assert client.patch(
         "/suppliers/999/status",
         json={"status": "active"},

@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Análisis operativo de incidencias" />
+    <meta name="description" content="Pulse Desk OPS — Analiza incidencias, gestiona proveedores y registra nuevas incidencias operativas." />
     <title>Pulse Desk | Análisis de incidencias</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -27,12 +27,14 @@
         <nav class="nav-list">
           <span class="nav-section">OPERACIONES</span>
           <a class="nav-item" href="#overview"><span class="nav-glyph">01</span>Resumen</a>
-          <a class="nav-item active" href="#analysis" aria-current="page"><span class="nav-glyph">02</span>Incidencias <b>4</b></a>
-          <a class="nav-item" href="#suppliers"><span class="nav-glyph">03</span>Proveedores</a>
-          <a class="nav-item" href="#requests"><span class="nav-glyph">04</span>Solicitudes</a>
-          <a class="nav-item" href="#team"><span class="nav-glyph">05</span>Equipo</a>
+<a class="nav-item" href="#analysis"><span class="nav-glyph">02</span>Análisis CSV <b>4</b></a>
+          <a class="nav-item" href="#incident-list"><span class="nav-glyph">03</span>Panel de incidencias</a>
+          <a class="nav-item" href="#suppliers"><span class="nav-glyph">04</span>Proveedores</a>
+          <a class="nav-item" href="#requests"><span class="nav-glyph">05</span>Solicitudes</a>
+          <a class="nav-item" href="#incident-form"><span class="nav-glyph">06</span>Registro de incidencias</a>
+          <a class="nav-item" href="#team"><span class="nav-glyph">07</span>Equipo</a>
           <span class="nav-section">SISTEMA</span>
-          <a class="nav-item" href="#settings"><span class="nav-glyph">06</span>Configuración</a>
+          <a class="nav-item" href="#settings"><span class="nav-glyph">08</span>Configuración</a>
         </nav>
 
         <div class="sidebar-footer">
@@ -164,6 +166,159 @@
               </table>
             </div>
             <div class="supplier-status" id="supplier-status" role="status" aria-live="polite">Cargando proveedores…</div>
+          </section>
+        </div>
+
+        <div class="page-content" id="incident-list-view" hidden>
+          <section class="page-intro">
+            <div><span class="eyebrow accent">NEXOVA · INCIDENCIAS</span><h1>Panel de incidencias</h1><p>Todas las incidencias registradas, con filtros y control de estado.</p></div>
+            <div class="directory-summary"><span class="eyebrow">TOTAL</span><strong id="incident-count">—</strong></div>
+          </section>
+
+          <section class="incident-list-panel" aria-labelledby="incident-list-title">
+            <div class="section-heading">
+              <div><span class="eyebrow">LISTADO</span><h2 id="incident-list-title">Incidencias registradas</h2></div>
+              <button class="download-button refresh-button" id="refresh-incidents" type="button" title="Actualizar listado"><span aria-hidden="true">↻</span>Actualizar</button>
+            </div>
+
+            <div class="incident-list-error" id="incident-list-error" role="alert" hidden></div>
+
+            <div class="incident-list-filters" aria-label="Filtros de incidencias">
+              <label class="filter-field">Estado
+                <select id="incident-filter-status">
+                  <option value="">Todos los estados</option>
+                  <option value="open">Abierta</option>
+                  <option value="in_progress">En curso</option>
+                  <option value="resolved">Resuelta</option>
+                  <option value="discarded">Descartada</option>
+                </select>
+              </label>
+              <label class="filter-field">Origen
+                <select id="incident-filter-origin">
+                  <option value="">Todos los orígenes</option>
+                  <option value="internal">Interno</option>
+                  <option value="customer">Cliente</option>
+                  <option value="branch">Sucursal</option>
+                </select>
+              </label>
+              <label class="filter-field">Sede
+                <select id="incident-filter-branch">
+                  <option value="">Todas las sedes</option>
+                  <option value="central">Valencia (Central)</option>
+                  <option value="miami">Miami</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="incident-loading" id="incident-loading" role="status" hidden>
+              <span class="loading-spinner" aria-hidden="true">↻</span>
+              <span>Cargando incidencias…</span>
+            </div>
+
+            <div class="incident-empty" id="incident-empty" role="status" hidden>
+              <span class="empty-icon" aria-hidden="true">—</span>
+              <strong>No hay incidencias</strong>
+              <p id="incident-empty-msg">No se encontraron incidencias con los filtros aplicados.</p>
+            </div>
+
+            <div class="incident-table-wrap" id="incident-table-wrap" hidden>
+              <table class="incident-table">
+                <caption class="visually-hidden">Incidencias registradas con título, categoría, origen, sede, estado y acciones</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Título</th>
+                    <th scope="col">Categoría</th>
+                    <th scope="col">Origen</th>
+                    <th scope="col">Sede</th>
+                    <th scope="col">Estado</th>
+                    <th scope="col">Acción</th>
+                  </tr>
+                </thead>
+                <tbody id="incident-rows"></tbody>
+              </table>
+            </div>
+
+            <div class="incident-list-status" id="incident-list-status" role="status" aria-live="polite"></div>
+          </section>
+        </div>
+
+        <div class="page-content" id="incident-form-view" hidden>
+          <section class="page-intro">
+            <div><span class="eyebrow accent">PERSONAL · INCIDENCIAS</span><h1>Registro de incidencias</h1><p>Reporta una incidencia operativa para que el equipo la gestione.</p></div>
+          </section>
+
+          <section class="incident-form-panel" aria-labelledby="incident-form-title">
+            <div class="section-heading">
+              <div><span class="eyebrow">NUEVA INCIDENCIA</span><h2 id="incident-form-title">Datos de la incidencia</h2></div>
+              <span class="format-pill">REQUERIDO</span>
+            </div>
+
+            <div class="incident-success" id="incident-success" role="status" hidden>
+              <span class="success-icon" aria-hidden="true">✓</span>
+              <div>
+                <strong>Incidencia registrada</strong>
+                <p id="incident-success-msg">La incidencia se ha creado correctamente.</p>
+              </div>
+            </div>
+
+            <form id="incident-form" class="incident-form" novalidate>
+              <div class="incident-form-grid">
+                <div class="incident-field-full">
+                  <label class="form-field" for="incident-title">Título
+                    <input id="incident-title" name="title" type="text" required maxlength="200" placeholder="Ej: Error en nómina de equipo de Valencia" />
+                  </label>
+                  <p class="field-error" id="incident-title-error" role="alert" hidden></p>
+                </div>
+
+                <div class="incident-field-full">
+                  <label class="form-field" for="incident-description">Descripción
+                    <textarea id="incident-description" name="description" required maxlength="2000" placeholder="Describe la incidencia con suficiente detalle para que el equipo pueda actuar."></textarea>
+                  </label>
+                  <p class="field-error" id="incident-description-error" role="alert" hidden></p>
+                </div>
+
+                <label class="form-field" for="incident-category">Categoría
+                  <select id="incident-category" name="category">
+                    <option value="">Sin categoría</option>
+                    <option value="recruitment">Headhunting</option>
+                    <option value="outsourcing">Outsourcing</option>
+                    <option value="training">Formación corporativa</option>
+                    <option value="payroll">Nóminas</option>
+                    <option value="compliance">Cumplimiento</option>
+                    <option value="internal">Interna</option>
+                  </select>
+                </label>
+
+                <label class="form-field" for="incident-origin">Origen
+                  <select id="incident-origin" name="origin" required>
+                    <option value="internal">Interno</option>
+                    <option value="customer">Cliente</option>
+                    <option value="branch">Sucursal</option>
+                  </select>
+                </label>
+
+                <div class="incident-field-full incident-branch-field" id="incident-branch-container">
+                  <label class="form-field" for="incident-branch">Sucursal / Sede
+                    <span class="branch-hint" id="branch-hint">Selecciona la sede afectada</span>
+                    <select id="incident-branch" name="branch" required>
+                      <option value="central">Valencia (Central)</option>
+                      <option value="miami">Miami</option>
+                    </select>
+                  </label>
+                  <p class="field-error" id="incident-branch-error" role="alert" hidden></p>
+                </div>
+              </div>
+
+              <div class="incident-form-footer">
+                <div class="incident-form-messages">
+                  <p class="error-banner form-message" id="incident-form-error" role="alert" hidden></p>
+                </div>
+                <button class="primary-button" id="create-incident-button" type="submit">
+                  <span class="button-arrow" id="incident-btn-arrow">↗</span>
+                  <span id="incident-btn-text">Registrar incidencia</span>
+                </button>
+              </div>
+            </form>
           </section>
         </div>
       </main>

@@ -32,6 +32,13 @@ function showError(message) {
   errorBanner.hidden = false;
 }
 
+function escapeHtml(str) {
+  if (str == null) return "";
+  const d = document.createElement("div");
+  d.textContent = str;
+  return d.innerHTML;
+}
+
 function clearError() {
   errorBanner.hidden = true;
   errorBanner.textContent = "";
@@ -166,7 +173,41 @@ downloadButton.addEventListener("click", downloadResults);
   const createSupplierButton = document.querySelector("#create-supplier-button");
   const supplierFormError = document.querySelector("#supplier-form-error");
   const supplierFormSuccess = document.querySelector("#supplier-form-success");
-  const routeLinks = [...document.querySelectorAll('.nav-item[href="#analysis"], .nav-item[href="#suppliers"]')];
+
+  const incidentFormView = document.querySelector("#incident-form-view");
+  const incidentForm = document.querySelector("#incident-form");
+  const incidentTitle = document.querySelector("#incident-title");
+  const incidentDescription = document.querySelector("#incident-description");
+  const incidentCategory = document.querySelector("#incident-category");
+  const incidentOrigin = document.querySelector("#incident-origin");
+  const incidentBranch = document.querySelector("#incident-branch");
+  const incidentBranchContainer = document.querySelector("#incident-branch-container");
+  const incidentBranchHint = document.querySelector("#branch-hint");
+  const incidentCreateButton = document.querySelector("#create-incident-button");
+  const incidentBtnArrow = document.querySelector("#incident-btn-arrow");
+  const incidentBtnText = document.querySelector("#incident-btn-text");
+  const incidentFormError = document.querySelector("#incident-form-error");
+  const incidentSuccess = document.querySelector("#incident-success");
+  const incidentSuccessMsg = document.querySelector("#incident-success-msg");
+  const incidentTitleError = document.querySelector("#incident-title-error");
+  const incidentDescriptionError = document.querySelector("#incident-description-error");
+  const incidentBranchError = document.querySelector("#incident-branch-error");
+
+  const incidentListView = document.querySelector("#incident-list-view");
+  const incidentCount = document.querySelector("#incident-count");
+  const incidentRefreshButton = document.querySelector("#refresh-incidents");
+  const incidentListError = document.querySelector("#incident-list-error");
+  const incidentFilterStatus = document.querySelector("#incident-filter-status");
+  const incidentFilterOrigin = document.querySelector("#incident-filter-origin");
+  const incidentFilterBranch = document.querySelector("#incident-filter-branch");
+  const incidentLoading = document.querySelector("#incident-loading");
+  const incidentEmpty = document.querySelector("#incident-empty");
+  const incidentEmptyMsg = document.querySelector("#incident-empty-msg");
+  const incidentTableWrap = document.querySelector("#incident-table-wrap");
+  const incidentRows = document.querySelector("#incident-rows");
+  const incidentListStatus = document.querySelector("#incident-list-status");
+
+  const routeLinks = [...document.querySelectorAll('.nav-item[href="#analysis"], .nav-item[href="#suppliers"], .nav-item[href="#incident-form"], .nav-item[href="#incident-list"]')];
   const categoryLabels = {
     executive_search: "Headhunting ejecutivo",
     customer_service_outsourcing: "Outsourcing de atención al cliente",
@@ -422,15 +463,162 @@ downloadButton.addEventListener("click", downloadResults);
     }
   }
 
+  /* ───── Registro de incidencias ───── */
+
+  const INCIDENTS_API_URL = `${API_BASE_URL}/api/incidents`;
+
+  function hideIncidentError() {
+    incidentFormError.hidden = true;
+    incidentFormError.textContent = "";
+  }
+
+  function showIncidentFieldError(element, message) {
+    element.textContent = message;
+    element.hidden = false;
+  }
+
+  function clearIncidentFieldErrors() {
+    [incidentTitleError, incidentDescriptionError, incidentBranchError].forEach((el) => { el.hidden = true; el.textContent = ""; });
+  }
+
+  function hideIncidentSuccess() {
+    incidentSuccess.hidden = true;
+  }
+
+  function showIncidentSuccess(message) {
+    incidentSuccessMsg.textContent = message;
+    incidentSuccess.hidden = false;
+    incidentSuccess.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
+  function highlightBranchField(highlight) {
+    incidentBranchContainer.classList.toggle("highlight", highlight);
+    incidentBranchHint.textContent = highlight
+      ? "Informando desde una sucursal — indica la sede afectada"
+      : "Selecciona la sede afectada";
+  }
+
+  function toggleIncidentLoading(loading) {
+    incidentCreateButton.disabled = loading;
+    incidentBtnArrow.textContent = loading ? "↻" : "↗";
+    incidentBtnText.textContent = loading ? "Registrando…" : "Registrar incidencia";
+    incidentForm.querySelectorAll("input, select, textarea").forEach((el) => el.toggleAttribute("disabled", loading));
+  }
+
+  async function submitIncident(event) {
+    event.preventDefault();
+    hideIncidentError();
+    hideIncidentSuccess();
+    clearIncidentFieldErrors();
+
+    const title = incidentTitle.value.trim();
+    const description = incidentDescription.value.trim();
+    const category = incidentCategory.value || null;
+    const origin = incidentOrigin.value;
+    const branch = incidentBranch.value;
+
+    let hasFieldError = false;
+
+    if (!title) {
+      showIncidentFieldError(incidentTitleError, "El título es obligatorio.");
+      hasFieldError = true;
+    }
+    if (!description) {
+      showIncidentFieldError(incidentDescriptionError, "La descripción es obligatoria.");
+      hasFieldError = true;
+    }
+    if (!branch) {
+      showIncidentFieldError(incidentBranchError, "Selecciona una sede.");
+      hasFieldError = true;
+    }
+
+    if (hasFieldError) return;
+
+    toggleIncidentLoading(true);
+
+    try {
+      const response = await fetch(INCIDENTS_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, description, category, origin, branch }),
+      });
+
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        const apiMessage = apiErrorMessage(payload, "La API rechazó los datos de la incidencia.");
+
+        if (payload.errors && Array.isArray(payload.errors)) {
+          let hasLocalErrors = false;
+          payload.errors.forEach((err) => {
+            const field = (err.field || "").toLowerCase();
+            const msg = err.message || "Valor no válido.";
+            if (field.includes("title")) {
+              showIncidentFieldError(incidentTitleError, msg);
+              hasLocalErrors = true;
+            } else if (field.includes("description")) {
+              showIncidentFieldError(incidentDescriptionError, msg);
+              hasLocalErrors = true;
+            } else if (field.includes("branch")) {
+              showIncidentFieldError(incidentBranchError, msg);
+              hasLocalErrors = true;
+            }
+          });
+          if (hasLocalErrors) return;
+        }
+
+        throw new Error(apiMessage);
+      }
+
+      incidentForm.reset();
+      incidentCategory.value = "";
+      highlightBranchField(incidentOrigin.value === "branch");
+      showIncidentSuccess(`Incidencia «${payload.title}» registrada correctamente.`);
+    } catch (error) {
+      incidentFormError.textContent = error.message?.toLowerCase().includes("fetch")
+        ? "No se pudo conectar con la API. Comprueba que el servidor esté activo e inténtalo de nuevo."
+        : error.message || "No se pudo registrar la incidencia.";
+      incidentFormError.hidden = false;
+    } finally {
+      toggleIncidentLoading(false);
+    }
+  }
+
+  /* ───── Event listeners ───── */
+
+  incidentOrigin.addEventListener("change", () => {
+    const isBranch = incidentOrigin.value === "branch";
+    highlightBranchField(isBranch);
+    if (isBranch) incidentBranchContainer.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  });
+
+  incidentTitle.addEventListener("input", () => { incidentTitleError.hidden = true; hideIncidentError(); hideIncidentSuccess(); });
+  incidentDescription.addEventListener("input", () => { incidentDescriptionError.hidden = true; hideIncidentError(); hideIncidentSuccess(); });
+  incidentBranch.addEventListener("change", () => { incidentBranchError.hidden = true; hideIncidentError(); hideIncidentSuccess(); });
+  incidentCategory.addEventListener("change", () => { hideIncidentError(); hideIncidentSuccess(); });
+  incidentOrigin.addEventListener("change", () => { hideIncidentError(); hideIncidentSuccess(); });
+
+  incidentForm.addEventListener("submit", submitIncident);
+
   function syncDirectoryRoute() {
     const hash = window.parent.location.hash;
-    if (hash !== "#analysis" && hash !== "#suppliers") return;
 
-    const showSuppliers = hash === "#suppliers";
-    analysisView.hidden = showSuppliers;
-    suppliersView.hidden = !showSuppliers;
-    breadcrumb.textContent = showSuppliers ? "Directorio de proveedores" : "Análisis de incidencias";
-    document.title = showSuppliers ? "Pulse Desk | Proveedores" : "Pulse Desk | Análisis de incidencias";
+    const isAnalysis = hash === "#analysis" || (!hash || hash === "#overview" || hash === "#requests" || hash === "#team" || hash === "#settings");
+    const isSuppliers = hash === "#suppliers";
+    const isIncidentForm = hash === "#incident-form";
+    const isIncidentList = hash === "#incident-list";
+
+    analysisView.hidden = !isAnalysis;
+    suppliersView.hidden = !isSuppliers;
+    incidentFormView.hidden = !isIncidentForm;
+    incidentListView.hidden = !isIncidentList;
+
+    if (isAnalysis) breadcrumb.textContent = "Análisis de incidencias";
+    else if (isSuppliers) breadcrumb.textContent = "Directorio de proveedores";
+    else if (isIncidentForm) breadcrumb.textContent = "Registro de incidencias";
+    else if (isIncidentList) breadcrumb.textContent = "Panel de incidencias";
+
+    document.title = isSuppliers ? "Pulse Desk | Proveedores" : isIncidentForm ? "Pulse Desk | Incidencias" : isIncidentList ? "Pulse Desk | Panel de incidencias" : "Pulse Desk | Análisis de incidencias";
     routeLinks.forEach((link) => {
       const active = link.hash === hash;
       link.classList.toggle("active", active);
@@ -438,7 +626,8 @@ downloadButton.addEventListener("click", downloadResults);
       else link.removeAttribute("aria-current");
     });
 
-    if (showSuppliers && !suppliersLoaded) loadSuppliers();
+    if (isSuppliers && !suppliersLoaded) loadSuppliers();
+    if (isIncidentList) loadIncidents();
   }
 
   refreshSuppliersButton.addEventListener("click", loadSuppliers);
@@ -456,5 +645,195 @@ downloadButton.addEventListener("click", downloadResults);
     if (statusButton) updateSupplierStatus(statusButton);
   });
   window.addEventListener("hashchange", syncDirectoryRoute);
+  highlightBranchField(incidentOrigin.value === "branch");
+
+  /* ───── Incident list ───── */
+
+  const INCIDENT_STATUS_LABELS = { open: "Abierta", in_progress: "En curso", resolved: "Resuelta", discarded: "Descartada" };
+  const INCIDENT_CATEGORY_LABELS = { recruitment: "Reclutamiento", outsourcing: "Outsourcing", training: "Formación", payroll: "Nóminas", compliance: "Cumplimiento", internal: "Interna" };
+  const INCIDENT_ORIGIN_LABELS = { internal: "Interno", customer: "Cliente", branch: "Sucursal" };
+
+  let currentIncidents = [];
+
+  function showIncidentLoading() {
+    incidentLoading.hidden = false;
+    incidentEmpty.hidden = true;
+    incidentTableWrap.hidden = true;
+    incidentListError.hidden = true;
+  }
+
+  function hideIncidentLoading() {
+    incidentLoading.hidden = true;
+  }
+
+  function formatIncidentDate(iso) {
+    if (!iso) return "—";
+    try {
+      const d = new Date(iso);
+      if (isNaN(d.getTime())) return "—";
+      const pad = (n) => String(n).padStart(2, "0");
+      return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
+    } catch {
+      return "—";
+    }
+  }
+
+  function getStatusBadgeHTML(status) {
+    const label = INCIDENT_STATUS_LABELS[status] || status;
+    return `<span class="status-badge status-${status}">${label}</span>`;
+  }
+
+  function getActionButtonsHTML(incident) {
+    if (incident.status === "resolved" || incident.status === "discarded") {
+      return `<span class="status-final">Estado final</span>`;
+    }
+    let buttons = "";
+    if (incident.status === "open") {
+      buttons += `<button type="button" class="action-btn action-in-progress" data-incident-id="${incident.id}" data-new-status="in_progress">Iniciar</button>`;
+      buttons += `<button type="button" class="action-btn action-discard" data-incident-id="${incident.id}" data-new-status="discarded">Descartar</button>`;
+    } else if (incident.status === "in_progress") {
+      buttons += `<button type="button" class="action-btn action-resolve" data-incident-id="${incident.id}" data-new-status="resolved">Resolver</button>`;
+      buttons += `<button type="button" class="action-btn action-discard" data-incident-id="${incident.id}" data-new-status="discarded">Descartar</button>`;
+    }
+    return buttons;
+  }
+
+  function renderIncidentRow(incident) {
+    const catLabel = INCIDENT_CATEGORY_LABELS[incident.category] || incident.category || "—";
+    const originLabel = INCIDENT_ORIGIN_LABELS[incident.origin] || incident.origin || "—";
+    const tr = document.createElement("tr");
+    tr.dataset.id = incident.id;
+    tr.innerHTML = `
+      <td class="incident-cell-title">
+        <strong>${escapeHtml(incident.title)}</strong>
+        <span class="incident-date">${formatIncidentDate(incident.created_at)}</span>
+      </td>
+      <td>${escapeHtml(catLabel)}</td>
+      <td>${escapeHtml(originLabel)}</td>
+      <td>${escapeHtml(incident.branch || "—")}</td>
+      <td>${getStatusBadgeHTML(incident.status)}</td>
+      <td class="incident-cell-actions">${getActionButtonsHTML(incident)}</td>
+    `;
+    return tr;
+  }
+
+  function updateIncidentCount() {
+    const total = currentIncidents.length;
+    incidentCount.textContent = total === 0 ? "0" : String(total);
+  }
+
+  async function loadIncidents() {
+    const status = incidentFilterStatus.value;
+    const origin = incidentFilterOrigin.value;
+    const branch = incidentFilterBranch.value;
+
+    showIncidentLoading();
+
+    try {
+      const params = new URLSearchParams();
+      if (status) params.set("status", status);
+      if (origin) params.set("origin", origin);
+      if (branch) params.set("branch", branch);
+
+      const apiBase = resolveApiBaseUrl();
+      const res = await fetch(`${apiBase}/api/incidents?${params.toString()}`, {
+        headers: { "Accept": "application/json" }
+      });
+
+      if (!res.ok) {
+        throw new Error(`Error del servidor (${res.status})`);
+      }
+
+      currentIncidents = await res.json();
+
+      hideIncidentLoading();
+      incidentListError.hidden = true;
+      updateIncidentCount();
+
+      if (currentIncidents.length === 0) {
+        incidentEmpty.hidden = false;
+        incidentTableWrap.hidden = true;
+        const parts = [];
+        if (status) parts.push(`estado "${INCIDENT_STATUS_LABELS[status] || status}"`);
+        if (origin) parts.push(`origen "${INCIDENT_ORIGIN_LABELS[origin] || origin}"`);
+        if (branch) parts.push(`sede "${branch}"`);
+        incidentEmptyMsg.textContent = parts.length
+          ? `No hay incidencias con ${parts.join(", ")}. Prueba a modificar los filtros.`
+          : "No hay incidencias registradas. Crea una desde el formulario de registro.";
+      } else {
+        incidentEmpty.hidden = true;
+        incidentTableWrap.hidden = false;
+        incidentRows.innerHTML = "";
+        currentIncidents.forEach((inc) => {
+          incidentRows.appendChild(renderIncidentRow(inc));
+        });
+      }
+    } catch (err) {
+      hideIncidentLoading();
+      incidentTableWrap.hidden = true;
+      incidentEmpty.hidden = true;
+      incidentListError.hidden = false;
+      incidentListError.innerHTML = `<span class="error-icon" aria-hidden="true">⚠</span><span>${escapeHtml(err.message || "Error al cargar incidencias.")}</span> <button type="button" class="retry-btn" id="incident-retry-btn">Reintentar</button>`;
+      const retryBtn = incidentListError.querySelector("#incident-retry-btn");
+      if (retryBtn) retryBtn.addEventListener("click", loadIncidents);
+    }
+  }
+
+  async function updateIncidentStatusInline(event) {
+    const button = event.target.closest('[data-incident-id][data-new-status]');
+    if (!button) return;
+    if (button.disabled) return;
+
+    const incidentId = button.dataset.incidentId;
+    const newStatus = button.dataset.newStatus;
+    const originalHTML = button.innerHTML;
+    button.disabled = true;
+    button.textContent = "…";
+
+    try {
+      const apiBase = resolveApiBaseUrl();
+      const res = await fetch(`${apiBase}/api/incidents/${incidentId}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify({ status: newStatus })
+      });
+
+      if (!res.ok) {
+        let errMsg = `Error (${res.status})`;
+        try {
+          const errBody = await res.json();
+          if (errBody.detail) errMsg = errBody.detail;
+        } catch {}
+        throw new Error(errMsg);
+      }
+
+      const updated = await res.json();
+      const row = document.querySelector(`tr[data-id="${incidentId}"]`);
+      if (row) {
+        const idx = currentIncidents.findIndex((i) => i.id === incidentId);
+        if (idx !== -1) currentIncidents[idx] = updated;
+        row.replaceWith(renderIncidentRow(updated));
+      }
+
+      incidentListStatus.textContent = `Incidencia actualizada a "${INCIDENT_STATUS_LABELS[newStatus] || newStatus}".`;
+      setTimeout(() => { incidentListStatus.textContent = ""; }, 4000);
+    } catch (err) {
+      button.disabled = false;
+      button.innerHTML = originalHTML;
+      incidentListStatus.textContent = `Error al actualizar: ${err.message}`;
+      setTimeout(() => { incidentListStatus.textContent = ""; }, 5000);
+    }
+  }
+
+  /* ───── Incident list event listeners ───── */
+
+  incidentFilterStatus.addEventListener("change", loadIncidents);
+  incidentFilterOrigin.addEventListener("change", loadIncidents);
+  incidentFilterBranch.addEventListener("change", loadIncidents);
+  incidentRefreshButton.addEventListener("click", loadIncidents);
+  incidentRows.addEventListener("click", updateIncidentStatusInline);
+
+  /* ───── Init ───── */
+
   syncDirectoryRoute();
 })();
