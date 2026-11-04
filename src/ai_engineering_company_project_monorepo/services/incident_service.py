@@ -56,7 +56,7 @@ def create_incident(
     *,
     title: str,
     description: str,
-    category: IncidentCategory | None = None,
+    category: IncidentCategory = IncidentCategory.OTHER,
     origin: IncidentOrigin = IncidentOrigin.INTERNAL,
     branch: str = "central",
 ) -> Incident:
@@ -149,7 +149,7 @@ def compute_summary(database: TinyDB) -> dict[str, dict[str, int]]:
 
     for incident in incidents:
         by_status[incident.status.value] = by_status.get(incident.status.value, 0) + 1
-        cat = incident.category.value if incident.category else "none"
+        cat = incident.category.value
         by_category[cat] = by_category.get(cat, 0) + 1
         by_origin[incident.origin.value] = by_origin.get(incident.origin.value, 0) + 1
         by_branch[incident.branch] = by_branch.get(incident.branch, 0) + 1

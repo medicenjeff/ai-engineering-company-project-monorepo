@@ -15,6 +15,7 @@ dependencies = [
     { name = "bcrypt" },
     { name = "fastapi" },
     { name = "libpass", extra = ["bcrypt"] },
+    { name = "nexova-incidents" },
     { name = "pandas" },
     { name = "pydantic", extra = ["email"] },
     { name = "python-dotenv" },
@@ -35,6 +36,7 @@ requires-dist = [
     { name = "bcrypt", specifier = ">=5.0.0" },
     { name = "fastapi", specifier = ">=0.141.1" },
     { name = "libpass", extras = ["bcrypt"], specifier = ">=1.9.3" },
+    { name = "nexova-incidents", editable = "packages/shared/python" },
     { name = "pandas", specifier = ">=2.2.0" },
     { name = "pydantic", extras = ["email"], specifier = ">=2.13.5" },
     { name = "python-dotenv", specifier = ">=1.2.3" },
@@ -385,6 +387,21 @@ wheels = [
 [package.optional-dependencies]
 bcrypt = [
     { name = "bcrypt" },
+]
+
+[[package]]
+name = "nexova-incidents"
+version = "0.1.0"
+source = { editable = "packages/shared/python" }
+dependencies = [
+    { name = "pandas" },
+    { name = "pydantic", extra = ["email"] },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pandas", specifier = ">=2.2.0" },
+    { name = "pydantic", extras = ["email"], specifier = ">=2.13.5" },
 ]
 
 [[package]]

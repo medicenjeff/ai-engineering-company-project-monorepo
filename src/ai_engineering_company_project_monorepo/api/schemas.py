@@ -3,6 +3,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
 from ai_engineering_company_project_monorepo.models.incident import (
+    IncidentBranch,
     IncidentCategory,
     IncidentOrigin,
     IncidentStatus,
@@ -166,11 +167,11 @@ class AuthMeResponse(BaseModel):
 class IncidentCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    title: str = Field(min_length=1)
+    title: str = Field(min_length=1, max_length=120)
     description: str = Field(min_length=1)
-    category: IncidentCategory | None = None
+    category: IncidentCategory = IncidentCategory.OTHER
     origin: IncidentOrigin = IncidentOrigin.INTERNAL
-    branch: str = "central"
+    branch: IncidentBranch = IncidentBranch.CENTRAL
 
     @field_validator("title")
     @classmethod
@@ -188,15 +189,6 @@ class IncidentCreate(BaseModel):
             raise ValueError("description must not be empty")
         return stripped
 
-    @field_validator("branch")
-    @classmethod
-    def branch_not_empty(cls, value: str) -> str:
-        stripped = value.strip()
-        if not stripped:
-            raise ValueError("branch must not be empty")
-        return stripped
-
-
 class IncidentUpdateStatus(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -207,10 +199,10 @@ class IncidentResponse(BaseModel):
     id: str
     title: str
     description: str
-    category: str | None
-    status: str
-    origin: str
-    branch: str
+    category: IncidentCategory
+    status: IncidentStatus
+    origin: IncidentOrigin
+    branch: IncidentBranch
     created_at: str
     updated_at: str
 

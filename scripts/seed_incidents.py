@@ -1,32 +1,18 @@
 #!/usr/bin/env python3
-"""Seed historical incidents from a CSV file into the database.
+"""Import the official Nexova CSV using the transformations in BRIEFING.md.
 
-Usage:
-    uv run python scripts/seed_incidents.py [--csv path/to/incidents.csv]
-                                           [--database path/to/db.json]
-
-The CSV is expected to have the following columns (previous-project format):
-    incident_id, category, description, date, ubicación, status
-
-Transformations applied (per BRIEFING):
-    description   → title (breve título de la incidencia)
-    description   → description (mismo texto, usado como descripción detallada)
-    date          → created_at
-    ubicación     → branch
-    status        → mapped via CSV_STATUS_TO_MODEL (pending→in_progress, closed→resolved, etc.)
-    category      → mapped via CSV_CATEGORY_TO_MODEL
-
-All inserted records get origin="customer" as required.
-Invalid CSV rows are reported to console and skipped.
-The script is idempotent: it checks by incident_id before inserting.
+The original ticket ID is used only to derive a stable UUID for idempotency.
+Without it, the UUID is derived from title and created_at.
 """
 
 import argparse
 import csv
+import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from uuid import NAMESPACE_URL, uuid5
 
 from tinydb import Query, TinyDB
 
@@ -36,7 +22,7 @@ from ai_engineering_company_project_monorepo.models.incident import (
     IncidentOrigin,
     IncidentStatus,
 )
-from ai_engineering_company_project_monorepo.shared.incident_constants import (
+from nexova_incidents import (
     CSV_CATEGORY_TO_MODEL,
     CSV_STATUS_TO_MODEL,
     REQUIRED_COLUMNS_SEED,
@@ -50,14 +36,8 @@ def load_csv_rows(csv_path: Path) -> list[dict[str, str]]:
         reader = csv.DictReader(fh)
         if reader.fieldnames is None:
             raise ValueError("CSV file has no headers")
-
-        # Normalize headers: strip whitespace
-        normalized: list[dict[str, str]] = []
-        for row in reader:
-            normalized.append(
-                {k.strip(): v.strip() if v else "" for k, v in row.items()}
-            )
-        return normalized
+        validate_headers(reader.fieldnames)
+        return [{key: value or "" for key, value in row.items() if key is not None} for row in reader]
 
 
 def validate_headers(fieldnames: list[str]) -> None:
@@ -77,37 +57,27 @@ def transform_row(raw: dict[str, str]) -> Incident:
     """
     csv_description = raw["description"]
 
-    status_raw = raw["status"].lower()
-    mapped_status = CSV_STATUS_TO_MODEL.get(status_raw, "open")
-
-    category_raw = raw["category"].lower()
-    mapped_category = CSV_CATEGORY_TO_MODEL.get(category_raw)
-
-    date_str = raw["date"].strip()
-    parsed_date = datetime.fromisoformat(date_str)
-    if parsed_date.tzinfo is None:
-        parsed_date = parsed_date.replace(tzinfo=timezone.utc)
-
-    branch = raw["ubicación"].strip().lower()
-
-    category_enum = None
-    if mapped_category:
-        category_enum = IncidentCategory(mapped_category)
+    mapped_status = CSV_STATUS_TO_MODEL[raw["status"]]
+    mapped_category = CSV_CATEGORY_TO_MODEL[raw["category"]]
+    parsed_date = datetime.strptime(raw["date"], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    title = csv_description[:120].strip()
+    ticket_id = raw.get("ticket_id", "").strip()
+    identity = f"ticket:{ticket_id}" if ticket_id else json.dumps([title, parsed_date.isoformat()])
 
     return Incident(
-        id=raw["incident_id"].strip(),
-        title=csv_description,
+        id=str(uuid5(NAMESPACE_URL, f"nexova:incidents:{identity}")),
+        title=title,
         description=csv_description,
-        category=category_enum,
+        category=IncidentCategory(mapped_category),
         status=IncidentStatus(mapped_status),
         origin=IncidentOrigin.CUSTOMER,  # All historical records are customer-reported
-        branch=branch,
+        branch="central",
         created_at=parsed_date,
         updated_at=parsed_date,
     )
 
 
-def seed_incidents(csv_path: Path, database_path: Path) -> dict[str, int]:
+def seed_incidents(csv_path: Path, database_path: Path) -> dict[str, Any]:
     """Load incidents from CSV and insert them into TinyDB.
 
     Returns a dict with counts of inserted, skipped (duplicate), and
@@ -129,7 +99,7 @@ def seed_incidents(csv_path: Path, database_path: Path) -> dict[str, int]:
         incident_query = Query()
 
         for idx, raw in enumerate(rows, start=2):  # CSV line numbers (1-based, header=1)
-            incident_id = raw.get("incident_id", "").strip()
+            incident_id = raw.get("ticket_id", "").strip()
 
             # Validate the row
             errors = validate_seed_row(raw)
@@ -137,13 +107,16 @@ def seed_incidents(csv_path: Path, database_path: Path) -> dict[str, int]:
                 invalid_rows.append((idx, incident_id or f"row_{idx}", errors))
                 continue
 
-            # Check for duplicates (idempotency)
-            if table.contains(incident_query.id == incident_id):
+            try:
+                incident = transform_row(raw)
+            except (ValueError, KeyError, TypeError) as error:
+                invalid_rows.append((idx, incident_id or f"row_{idx}", [str(error)]))
+                continue
+
+            if table.contains(incident_query.id == incident.id):
                 skipped_duplicates += 1
                 continue
 
-            # Transform and insert
-            incident = transform_row(raw)
             table.insert(incident.to_document())
             inserted += 1
 
@@ -185,8 +158,8 @@ def main() -> None:
     parser.add_argument(
         "--csv",
         type=Path,
-        default=Path("data/raw/incidents.csv"),
-        help="Ruta al CSV de incidencias (columnas: incident_id, category, description, date, ubicación, status)",
+        default=Path("data/raw/incidents-nexova.csv"),
+        help="Ruta al CSV histórico oficial de Nexova (ticket_id, date, category, description, status y campos del helpdesk)",
     )
     parser.add_argument(
         "--database",

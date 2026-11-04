@@ -2,6 +2,24 @@
 
 Paquete TypeScript basado en `CONTEXT.md`, sin dependencias de ejecución.
 
+## Validación Python de incidencias
+
+`python/` es el paquete compartido `nexova-incidents`, instalado como
+dependencia local editable desde el proyecto raíz. El analizador de
+`src/ai_engineering_company_project_monorepo/services/incident_analysis.py` y
+`scripts/seed_incidents.py` importan las mismas reglas de
+`python/src/nexova_incidents/validation.py`; el módulo histórico bajo `src/`
+solo conserva reexportaciones de compatibilidad.
+
+`validate_analyzer_rows` valida tanto el esquema anterior del analizador como
+el CSV histórico de Nexova; `validate_seed_row` comparte la validación de cada
+fila histórica. Las reglas y los mapeos no se duplican en la API ni en el seed.
+
+```bash
+uv sync --locked
+uv run pytest packages/shared/python/tests tests/test_incidents_api.py tests/test_seed.py
+```
+
 ## Entidades
 
 - `Proveedor`: `name`, `country`, `product_categories`, `rate`, `status`, `updated_at`.

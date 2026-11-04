@@ -13,6 +13,44 @@ Esta carpeta contiene **scripts auxiliares** del monorepo: automatizaciones de d
 python scripts/analyze.py scripts/incidents-COMPANY.csv
 ```
 
+## Carga de incidencias históricas
+
+El CSV oficial de Nexova está en `data/raw/incidents-nexova.csv`.
+Origen: [4Geeks Academy](https://github.com/4GeeksAcademy/ai-engineering-syllabus/blob/main/content/contexts/incidents-file-analysis/incidents-nexova.csv).
+El analizador y el seed comparten la validación del formato histórico.
+
+```bash
+uv run python scripts/seed_incidents.py --database /tmp/nexova-incidents-check.json
+```
+
+En una base vacía, inserta 96 registros y reporta cuatro rechazos (empresa o
+categoría ausente, email inválido y caso cerrado sin satisfacción). El comando
+termina con código 1 si hay rechazos, aunque los registros válidos se insertan.
+La segunda ejecución inserta cero y omite 96 duplicados.
+
+El título son los primeros 120 caracteres de la descripción, recortados; la
+descripción se conserva literalmente. Las fechas `YYYY-MM-DD` se guardan como
+medianoche UTC; todos los registros tienen `origin="customer"` y
+`branch="central"`. Estado y categoría se transforman según `BRIEFING.md`.
+El UUID determinista deriva de `ticket_id` o, si falta, de `title + created_at`;
+no se almacena el identificador original del CSV.
+
+`GET /api/incidents/summary`, usando la misma base, devuelve:
+
+```json
+{
+	"by_status": {"open": 27, "resolved": 56, "discarded": 13},
+	"by_category": {"technical_failure": 49, "process_error": 35, "client_complaint": 12},
+	"by_origin": {"customer": 96},
+	"by_branch": {"central": 96}
+}
+```
+
+Para cargar en la base de la aplicación, especifica `--database data/auth.json`.
+No se borran ni sobrescriben registros existentes: si ya hay incidencias,
+los totales incluirán también esos registros. Detén la API durante la carga;
+TinyDB no admite escrituras concurrentes entre procesos.
+
 ## Carga inicial de proveedores
 
 Desde la raiz del repositorio:

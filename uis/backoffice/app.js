@@ -192,6 +192,8 @@ downloadButton.addEventListener("click", downloadResults);
   const incidentTitleError = document.querySelector("#incident-title-error");
   const incidentDescriptionError = document.querySelector("#incident-description-error");
   const incidentBranchError = document.querySelector("#incident-branch-error");
+  const incidentCategoryError = document.querySelector("#incident-category-error");
+  const incidentOriginError = document.querySelector("#incident-origin-error");
 
   const incidentListView = document.querySelector("#incident-list-view");
   const incidentCount = document.querySelector("#incident-count");
@@ -479,7 +481,27 @@ downloadButton.addEventListener("click", downloadResults);
   }
 
   function clearIncidentFieldErrors() {
-    [incidentTitleError, incidentDescriptionError, incidentBranchError].forEach((el) => { el.hidden = true; el.textContent = ""; });
+    [incidentTitleError, incidentDescriptionError, incidentCategoryError, incidentOriginError, incidentBranchError].forEach((el) => { el.hidden = true; el.textContent = ""; });
+  }
+
+  function showIncidentApiErrors(payload) {
+    const errors = Array.isArray(payload?.errors) ? payload.errors : Array.isArray(payload?.detail) ? payload.detail : [];
+    const fields = {
+      title: [incidentTitleError, "Revisa el título de la incidencia."],
+      description: [incidentDescriptionError, "Completa la descripción de la incidencia."],
+      category: [incidentCategoryError, "Selecciona una categoría válida."],
+      origin: [incidentOriginError, "Selecciona un origen válido."],
+      branch: [incidentBranchError, "Selecciona una sede válida."],
+    };
+    let found = false;
+    errors.forEach((issue) => {
+      const field = String(issue.field || issue.loc?.at(-1) || "").split(".").at(-1);
+      const message = fields[field];
+      if (!message) return;
+      showIncidentFieldError(message[0], message[1]);
+      found = true;
+    });
+    return found;
   }
 
   function hideIncidentSuccess() {
@@ -514,7 +536,7 @@ downloadButton.addEventListener("click", downloadResults);
 
     const title = incidentTitle.value.trim();
     const description = incidentDescription.value.trim();
-    const category = incidentCategory.value || null;
+    const category = incidentCategory.value;
     const origin = incidentOrigin.value;
     const branch = incidentBranch.value;
 
@@ -523,9 +545,20 @@ downloadButton.addEventListener("click", downloadResults);
     if (!title) {
       showIncidentFieldError(incidentTitleError, "El título es obligatorio.");
       hasFieldError = true;
+    } else if (title.length > 120) {
+      showIncidentFieldError(incidentTitleError, "El título no puede superar los 120 caracteres.");
+      hasFieldError = true;
     }
     if (!description) {
       showIncidentFieldError(incidentDescriptionError, "La descripción es obligatoria.");
+      hasFieldError = true;
+    }
+    if (!category) {
+      showIncidentFieldError(incidentCategoryError, "Selecciona una categoría.");
+      hasFieldError = true;
+    }
+    if (!origin) {
+      showIncidentFieldError(incidentOriginError, "Selecciona un origen.");
       hasFieldError = true;
     }
     if (!branch) {
@@ -547,38 +580,18 @@ downloadButton.addEventListener("click", downloadResults);
       const payload = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        const apiMessage = apiErrorMessage(payload, "La API rechazó los datos de la incidencia.");
-
-        if (payload.errors && Array.isArray(payload.errors)) {
-          let hasLocalErrors = false;
-          payload.errors.forEach((err) => {
-            const field = (err.field || "").toLowerCase();
-            const msg = err.message || "Valor no válido.";
-            if (field.includes("title")) {
-              showIncidentFieldError(incidentTitleError, msg);
-              hasLocalErrors = true;
-            } else if (field.includes("description")) {
-              showIncidentFieldError(incidentDescriptionError, msg);
-              hasLocalErrors = true;
-            } else if (field.includes("branch")) {
-              showIncidentFieldError(incidentBranchError, msg);
-              hasLocalErrors = true;
-            }
-          });
-          if (hasLocalErrors) return;
-        }
-
-        throw new Error(apiMessage);
+        showIncidentApiErrors(payload);
+        throw new Error("No se pudo registrar la incidencia. Revisa los campos indicados e inténtalo de nuevo.");
       }
 
       incidentForm.reset();
-      incidentCategory.value = "";
+      incidentCategory.value = "other";
       highlightBranchField(incidentOrigin.value === "branch");
       showIncidentSuccess(`Incidencia «${payload.title}» registrada correctamente.`);
     } catch (error) {
-      incidentFormError.textContent = error.message?.toLowerCase().includes("fetch")
-        ? "No se pudo conectar con la API. Comprueba que el servidor esté activo e inténtalo de nuevo."
-        : error.message || "No se pudo registrar la incidencia.";
+      incidentFormError.textContent = !navigator.onLine || /failed to fetch|networkerror|load failed/i.test(error.message || "")
+        ? "No se pudo conectar con el servicio. Comprueba tu conexión e inténtalo de nuevo."
+        : error.message || "No se pudo registrar la incidencia. Comprueba los datos e inténtalo de nuevo.";
       incidentFormError.hidden = false;
     } finally {
       toggleIncidentLoading(false);
@@ -658,10 +671,10 @@ downloadButton.addEventListener("click", downloadResults);
   /* ───── Panel de incidencias: listado con filtros ───── */
 
   const INCIDENT_STATUS_LABELS = { open: "Abierta", in_progress: "En curso", resolved: "Resuelta", discarded: "Descartada" };
-  const INCIDENT_CATEGORY_LABELS = { recruitment: "Reclutamiento", outsourcing: "Outsourcing", training: "Formación", payroll: "Nóminas", compliance: "Cumplimiento", internal: "Interna" };
+  const INCIDENT_CATEGORY_LABELS = { technical_failure: "Fallo técnico", process_error: "Error de proceso", client_complaint: "Queja de cliente", candidate_issue: "Problema de candidato", staff_issue: "Incidencia de personal", sla_breach: "Incumplimiento de SLA", data_quality: "Calidad de datos", other: "Otra incidencia" };
   const INCIDENT_ORIGIN_LABELS = { internal: "Interno", customer: "Cliente", branch: "Sucursal" };
-  const INCIDENT_BRANCH_LABELS = { central: "Valencia (Central)", miami: "Miami" };
-  const INCIDENT_FALLBACK_BRANCHES = ["central", "miami"];
+  const INCIDENT_BRANCH_LABELS = { central: "Central — Sede Valencia", valencia_operations: "Valencia — Operaciones", miami_office: "Miami Office", remote: "Remoto (empleado sin sede fija)" };
+  const INCIDENT_FALLBACK_BRANCHES = Object.keys(INCIDENT_BRANCH_LABELS);
   // Las transiciones replican la máquina de estados del backend para no ofrecer
   // acciones que la API vaya a rechazar.
   const INCIDENT_TRANSITIONS = {
@@ -901,7 +914,7 @@ downloadButton.addEventListener("click", downloadResults);
     if (/failed to fetch|networkerror|load failed|fetch/i.test(message)) {
       return "No se pudo conectar con la API. Comprueba tu conexión e inténtalo de nuevo.";
     }
-    return message || "No se pudieron cargar las incidencias. Inténtalo de nuevo en unos segundos.";
+    return "No se pudieron cargar las incidencias. Comprueba tu conexión e inténtalo de nuevo.";
   }
 
   function renderBranchOptions(branches) {
@@ -925,7 +938,7 @@ downloadButton.addEventListener("click", downloadResults);
       if (!Array.isArray(incidents)) return;
       incidentListState.branches = incidents.map((incident) => incident.branch).filter(Boolean);
       incidentListState.total = incidents.length;
-      renderBranchOptions(incidentListState.branches);
+      renderBranchOptions([...INCIDENT_FALLBACK_BRANCHES, ...incidentListState.branches]);
       // Solo se refresca el contador si el listado ya está en pantalla;
       // durante la carga el indicador debe seguir mostrando «…».
       if (!incidentTableWrap.hidden) updateIncidentCount();
@@ -1053,8 +1066,7 @@ downloadButton.addEventListener("click", downloadResults);
       }
       showIncidentNotice(
         "error",
-        `No se pudo actualizar «${previous.title}»: ${error?.message || "error desconocido"}. ` +
-          `Se ha restaurado el estado «${statusLabel(previous.status)}».`,
+        `No se pudo actualizar «${previous.title}». Se ha restaurado el estado «${statusLabel(previous.status)}». Inténtalo de nuevo.`,
       );
     } finally {
       incidentListState.pendingIds.delete(incidentId);
@@ -1090,12 +1102,7 @@ downloadButton.addEventListener("click", downloadResults);
 
   const SUMMARY_URL = `${INCIDENTS_API_URL}/summary`;
 
-  const SUMMARY_BRANCH_LABELS = {
-    central: "Central — Sede Valencia",
-    valencia_operations: "Valencia — Operaciones",
-    miami_office: "Miami Office",
-    remote: "Remoto (empleado sin sede fija)",
-  };
+  const SUMMARY_BRANCH_LABELS = INCIDENT_BRANCH_LABELS;
   const SUMMARY_GROUPS = [
     {
       key: "by_status",
@@ -1257,7 +1264,7 @@ downloadButton.addEventListener("click", downloadResults);
     if (/failed to fetch|networkerror|load failed|fetch/i.test(message)) {
       return "No se pudo conectar con la API. Comprueba tu conexión e inténtalo de nuevo.";
     }
-    return message || "No se pudieron cargar las métricas. Inténtalo de nuevo en unos segundos.";
+    return "No se pudieron cargar las métricas. Comprueba tu conexión e inténtalo de nuevo.";
   }
 
   async function loadSummary(force = false) {

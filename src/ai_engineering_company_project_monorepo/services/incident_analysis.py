@@ -2,12 +2,13 @@ from typing import Any
 
 import pandas as pd
 
-from ai_engineering_company_project_monorepo.shared.incident_constants import (
+from nexova_incidents import (
     ALLOWED_PRIORITY,
     ALLOWED_STATUS,
     CLOSED_STATUSES,
     REQUIRED_COLUMNS_ANALYZER,
     STATUS_LABELS,
+    validate_analyzer_rows,
 )
 
 REQUIRED_COLUMNS = REQUIRED_COLUMNS_ANALYZER
@@ -15,45 +16,12 @@ REQUIRED_COLUMNS = REQUIRED_COLUMNS_ANALYZER
 
 def validate_dataframe(dataframe: pd.DataFrame) -> dict[str, list[int]]:
     """Return CSV line numbers grouped by validation problem."""
-    issues: dict[str, list[int]] = {}
-    missing_columns = [
-        column for column in REQUIRED_COLUMNS if column not in dataframe.columns
-    ]
-    if missing_columns:
-        issues["columnas obligatorias ausentes"] = list(dataframe.index + 2)
-        return issues
-
-    row_numbers = pd.Series(dataframe.index + 2, index=dataframe.index)
-    missing_values = pd.Series(False, index=dataframe.index)
-    for column in REQUIRED_COLUMNS:
-        values = dataframe[column].astype("string")
-        missing_values |= dataframe[column].isna() | values.str.strip().eq("")
-    if missing_values.any():
-        issues["campo faltante"] = row_numbers[missing_values].tolist()
-
-    status_present = ~dataframe["status"].isna() & dataframe["status"].astype("string").str.strip().ne("")
-    invalid_status = status_present & ~dataframe["status"].isin(ALLOWED_STATUS)
-    if invalid_status.any():
-        issues["status fuera de rango"] = row_numbers[invalid_status].tolist()
-
-    priority_present = ~dataframe["priority"].isna() & dataframe["priority"].astype("string").str.strip().ne("")
-    invalid_priority = priority_present & ~dataframe["priority"].isin(ALLOWED_PRIORITY)
-    if invalid_priority.any():
-        issues["priority fuera de rango"] = row_numbers[invalid_priority].tolist()
-
-    parsed_dates = pd.to_datetime(
-        dataframe["created_at"], format="%Y-%m-%d", errors="coerce"
+    rows = dataframe.astype(object).where(dataframe.notna(), "").to_dict("records")
+    return validate_analyzer_rows(
+        list(dataframe.columns),
+        rows,
+        [int(row_number) + 2 for row_number in dataframe.index],
     )
-    date_present = ~dataframe["created_at"].isna() & dataframe["created_at"].astype("string").str.strip().ne("")
-    invalid_dates = date_present & parsed_dates.isna()
-    if invalid_dates.any():
-        issues["fecha inválida"] = row_numbers[invalid_dates].tolist()
-
-    non_empty_ids = dataframe["incident_id"].astype("string").str.strip().ne("")
-    duplicated_ids = dataframe["incident_id"].duplicated(keep=False) & non_empty_ids
-    if duplicated_ids.any():
-        issues["incident_id duplicado"] = row_numbers[duplicated_ids].tolist()
-    return issues
 
 
 def analyze_dataframe(dataframe: pd.DataFrame) -> dict[str, Any]:
@@ -74,7 +42,7 @@ def analyze_dataframe(dataframe: pd.DataFrame) -> dict[str, Any]:
         }
         statuses = (
             valid_dataframe["status"]
-            .map(STATUS_LABELS)
+            .map({**STATUS_LABELS, "OPEN": "abierto", "CLOSED": "cerrado", "DISCARDED": "descartado"})
             .fillna(valid_dataframe["status"])
             .value_counts()
             .sort_index()
@@ -89,7 +57,7 @@ def analyze_dataframe(dataframe: pd.DataFrame) -> dict[str, Any]:
     if "satisfaction_score" in valid_dataframe.columns and "status" in valid_dataframe.columns:
         scores = pd.to_numeric(
             valid_dataframe.loc[
-                valid_dataframe["status"].isin(CLOSED_STATUSES),
+                valid_dataframe["status"].isin(CLOSED_STATUSES | {"CLOSED"}),
                 "satisfaction_score",
             ],
             errors="coerce",

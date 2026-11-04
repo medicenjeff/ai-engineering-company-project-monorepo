@@ -238,8 +238,10 @@
               <label class="filter-field">Sede
                 <select id="incident-filter-branch">
                   <option value="">Todas las sedes</option>
-                  <option value="central">Valencia (Central)</option>
-                  <option value="miami">Miami</option>
+                  <option value="central">Central — Sede Valencia</option>
+                  <option value="valencia_operations">Valencia — Operaciones</option>
+                  <option value="miami_office">Miami Office</option>
+                  <option value="remote">Remoto (empleado sin sede fija)</option>
                 </select>
               </label>
               <button type="button" class="text-button incident-clear-filters" id="incident-clear-filters">Limpiar filtros</button>
@@ -311,7 +313,7 @@
               <div class="incident-form-grid">
                 <div class="incident-field-full">
                   <label class="form-field" for="incident-title">Título
-                    <input id="incident-title" name="title" type="text" required maxlength="200" placeholder="Ej: Error en nómina de equipo de Valencia" />
+                    <input id="incident-title" name="title" type="text" required maxlength="120" placeholder="Ej: Error en nómina de equipo de Valencia" />
                   </label>
                   <p class="field-error" id="incident-title-error" role="alert" hidden></p>
                 </div>
@@ -325,14 +327,16 @@
 
                 <label class="form-field" for="incident-category">Categoría
                   <select id="incident-category" name="category">
-                    <option value="">Sin categoría</option>
-                    <option value="recruitment">Headhunting</option>
-                    <option value="outsourcing">Outsourcing</option>
-                    <option value="training">Formación corporativa</option>
-                    <option value="payroll">Nóminas</option>
-                    <option value="compliance">Cumplimiento</option>
-                    <option value="internal">Interna</option>
+                    <option value="other">Otra incidencia</option>
+                    <option value="technical_failure">Fallo técnico</option>
+                    <option value="process_error">Error de proceso</option>
+                    <option value="client_complaint">Queja de cliente</option>
+                    <option value="candidate_issue">Problema de candidato</option>
+                    <option value="staff_issue">Incidencia de personal</option>
+                    <option value="sla_breach">Incumplimiento de SLA</option>
+                    <option value="data_quality">Calidad de datos</option>
                   </select>
+                  <p class="field-error" id="incident-category-error" role="alert" hidden></p>
                 </label>
 
                 <label class="form-field" for="incident-origin">Origen
@@ -341,14 +345,17 @@
                     <option value="customer">Cliente</option>
                     <option value="branch">Sucursal</option>
                   </select>
+                  <p class="field-error" id="incident-origin-error" role="alert" hidden></p>
                 </label>
 
                 <div class="incident-field-full incident-branch-field" id="incident-branch-container">
                   <label class="form-field" for="incident-branch">Sucursal / Sede
                     <span class="branch-hint" id="branch-hint">Selecciona la sede afectada</span>
                     <select id="incident-branch" name="branch" required>
-                      <option value="central">Valencia (Central)</option>
-                      <option value="miami">Miami</option>
+                      <option value="central">Central — Sede Valencia</option>
+                      <option value="valencia_operations">Valencia — Operaciones</option>
+                      <option value="miami_office">Miami Office</option>
+                      <option value="remote">Remoto (empleado sin sede fija)</option>
                     </select>
                   </label>
                   <p class="field-error" id="incident-branch-error" role="alert" hidden></p>

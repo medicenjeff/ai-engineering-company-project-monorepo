@@ -16,6 +16,8 @@ from ai_engineering_company_project_monorepo.api.schemas import (
     IncidentUpdateStatus,
 )
 from ai_engineering_company_project_monorepo.models.incident import (
+    Incident,
+    IncidentBranch,
     IncidentCategory,
     IncidentOrigin,
     IncidentStatus,
@@ -113,7 +115,7 @@ def list_incidents_endpoint(
     database: Database,
     status: IncidentStatus | None = Query(default=None),
     origin: IncidentOrigin | None = Query(default=None),
-    branch: str | None = Query(default=None),
+    branch: IncidentBranch | None = Query(default=None),
     category: IncidentCategory | None = Query(default=None),
 ) -> list[IncidentResponse]:
     """Return the list of incidents with optional filters."""
@@ -164,7 +166,7 @@ def update_status_endpoint(
 # ── Helpers ──────────────────────────────────────────────────────────────
 
 
-def _to_response(incident: "Incident") -> IncidentResponse:
+def _to_response(incident: Incident) -> IncidentResponse:
     """Map a domain Incident to its Pydantic response schema."""
     return IncidentResponse(
         id=incident.id,

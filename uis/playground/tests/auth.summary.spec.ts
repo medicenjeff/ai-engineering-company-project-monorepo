@@ -68,7 +68,7 @@ for (const failure of ["http", "network", "html", "missing-fields", "invalid-cou
     page.on("pageerror", (error) => errors.push(error.message));
     await page.route(endpoint, (route) => {
       if (failure === "network") return route.abort("failed");
-      if (failure === "http") return route.fulfill({ status: 503, json: { detail: "Servicio temporalmente no disponible" } });
+      if (failure === "http") return route.fulfill({ status: 503, json: { detail: "Traceback /srv/private/summary.py" } });
       if (failure === "html") return route.fulfill({ contentType: "text/html", body: "Unavailable" });
       if (failure === "missing-fields") return route.fulfill({ json: {} });
       if (failure === "inconsistent-totals") return route.fulfill({ json: { ...summary, by_branch: { central: 1 } } });
@@ -76,6 +76,8 @@ for (const failure of ["http", "network", "html", "missing-fields", "invalid-cou
     });
     const view = await openSummary(page);
     await expect(view.locator("#summary-error")).toBeVisible();
+    await expect(view.locator("#summary-error-msg")).not.toContainText("Traceback");
+    await expect(view.locator("#summary-error-msg")).not.toContainText("/srv/private");
     await expect(view.locator("#summary-groups")).toBeHidden();
     await expect(view.locator("#summary-empty")).toBeHidden();
     await expect(view.locator("#summary-loading")).toBeHidden();

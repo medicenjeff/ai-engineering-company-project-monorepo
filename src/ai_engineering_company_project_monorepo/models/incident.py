@@ -1,22 +1,27 @@
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 
 
 class IncidentCategory(str, Enum):
-    """Categorías de incidencia según el negocio de Nexova.
+    """Categorías del gestor centralizado definidas en BRIEFING.md."""
 
-    Basadas en las tres líneas de negocio (headhunting, outsourcing,
-    formación corporativa) más categorías operativas internas.
-    """
+    TECHNICAL_FAILURE = "technical_failure"
+    PROCESS_ERROR = "process_error"
+    CLIENT_COMPLAINT = "client_complaint"
+    CANDIDATE_ISSUE = "candidate_issue"
+    STAFF_ISSUE = "staff_issue"
+    SLA_BREACH = "sla_breach"
+    DATA_QUALITY = "data_quality"
+    OTHER = "other"
 
-    RECRUITMENT = "recruitment"
-    OUTSOURCING = "outsourcing"
-    TRAINING = "training"
-    PAYROLL = "payroll"
-    COMPLIANCE = "compliance"
-    INTERNAL = "internal"
+
+class IncidentBranch(str, Enum):
+    CENTRAL = "central"
+    VALENCIA_OPERATIONS = "valencia_operations"
+    MIAMI_OFFICE = "miami_office"
+    REMOTE = "remote"
 
 
 class IncidentStatus(str, Enum):
@@ -37,7 +42,7 @@ class Incident:
     id: str
     title: str
     description: str
-    category: IncidentCategory | None = None
+    category: IncidentCategory = IncidentCategory.OTHER
     status: IncidentStatus = IncidentStatus.OPEN
     origin: IncidentOrigin = IncidentOrigin.INTERNAL
     branch: str = "central"
@@ -46,12 +51,14 @@ class Incident:
 
     def __post_init__(self) -> None:
         """Validaciones de integridad tras la inicialización."""
+        if not isinstance(self.id, str) or not self.id.strip():
+            raise ValueError("id is required and must not be empty")
         # Validar título
-        if not self.title or not self.title.strip():
-            raise ValueError("title is required and must not be empty")
+        if not isinstance(self.title, str) or not self.title.strip() or len(self.title) > 120:
+            raise ValueError("title must contain between 1 and 120 characters")
 
         # Validar descripción
-        if not self.description or not self.description.strip():
+        if not isinstance(self.description, str) or not self.description.strip():
             raise ValueError("description is required and must not be empty")
 
         # Validar status
@@ -66,23 +73,27 @@ class Incident:
                 "origin must be one of: customer, branch, internal"
             )
 
-        # Validar category si se proporciona
-        if self.category is not None and not isinstance(self.category, IncidentCategory):
+        if not isinstance(self.category, IncidentCategory):
             valid_categories = [c.value for c in IncidentCategory]
             raise ValueError(
                 f"category must be one of: {', '.join(valid_categories)}"
             )
 
         # Validar branch
-        if not self.branch or not self.branch.strip():
-            raise ValueError("branch is required and must not be empty")
+        if not isinstance(self.branch, str) or self.branch not in IncidentBranch:
+            raise ValueError("branch must be one of: central, valencia_operations, miami_office, remote")
+        for name, value in (("created_at", self.created_at), ("updated_at", self.updated_at)):
+            if not isinstance(value, datetime) or value.utcoffset() != timedelta(0):
+                raise ValueError(f"{name} must be a timezone-aware UTC datetime")
+        if self.updated_at < self.created_at:
+            raise ValueError("updated_at must not precede created_at")
 
     def to_document(self) -> dict[str, object]:
         return {
             "id": self.id,
             "title": self.title,
             "description": self.description,
-            "category": self.category.value if self.category else None,
+            "category": self.category.value,
             "status": self.status.value,
             "origin": self.origin.value,
             "branch": self.branch,
@@ -119,12 +130,9 @@ class Incident:
             raise TypeError("updated_at must be a datetime or ISO 8601 string")
 
         category_raw = document["category"]
-        category: IncidentCategory | None = None
-        if category_raw is not None:
-            if isinstance(category_raw, str):
-                category = IncidentCategory(category_raw)
-            elif not isinstance(category_raw, IncidentCategory):
-                raise TypeError("category must be an IncidentCategory or string")
+        if not isinstance(category_raw, str):
+            raise TypeError("category must be an IncidentCategory or string")
+        category = IncidentCategory(category_raw)
 
         status_raw = document["status"]
         if isinstance(status_raw, str):

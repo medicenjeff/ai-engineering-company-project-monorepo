@@ -18,6 +18,7 @@ dependencies = [
     "python-jose[cryptography]>=3.5.0",
     "tinydb>=4.9.0",
     "uvicorn>=0.54.0",
+    "nexova-incidents",
 ]
 
 [project.scripts]
@@ -27,6 +28,9 @@ seed = "ai_engineering_company_project_monorepo.seed:main"
 [build-system]
 requires = ["uv_build>=0.12.19,<0.13.0"]
 build-backend = "uv_build"
+
+[tool.uv.sources]
+nexova-incidents = { path = "packages/shared/python", editable = true }
 
 [dependency-groups]
 dev = [
