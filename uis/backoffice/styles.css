@@ -196,12 +196,26 @@ button:focus-visible, a:focus-visible { outline: 3px solid var(--yellow); outlin
 .incident-list-panel { padding: 26px; border: 1px solid var(--line); border-top: 3px solid var(--teal); background: var(--panel); box-shadow: var(--shadow); }
 
 .incident-list-error { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; padding: 12px 14px; border-left: 3px solid #c94b3d; color: #8e3229; background: #fff0ed; font-size: 12px; }
+.incident-list-error-body { min-width: 0; flex: 1; }
+.incident-list-error-body strong { display: block; margin-bottom: 2px; }
+.incident-list-error-body p { margin: 0; }
 .error-icon { font-size: 16px; }
 .retry-btn { flex: 0 0 auto; min-height: 30px; padding: 5px 12px; border: 1px solid #c94b3d; border-radius: 4px; color: #8e3229; background: #fff; font-size: 11px; font-weight: 700; cursor: pointer; }
 .retry-btn:hover { background: #fff5f3; }
 
 .incident-list-filters { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 17px; padding: 14px; border: 1px solid var(--line); background: #f8faf8; }
 .incident-list-filters .filter-field { width: min(220px, 100%); }
+.incident-clear-filters { align-self: end; padding-bottom: 10px; font-size: 12px; }
+
+/* Avisos en pantalla (éxito de actualización / rollback) */
+.incident-notice { margin: 0 0 16px; padding: 11px 14px; border-left: 3px solid var(--teal); border-radius: 4px; font-size: 12px; }
+.incident-notice.is-success { color: var(--teal-deep); background: var(--mint); }
+.incident-notice.is-error { border-left-color: #c94b3d; color: #8e3229; background: #fff0ed; }
+
+.incident-pending { display: block; margin-top: 6px; color: var(--muted); font-size: 10px; font-style: italic; }
+.incident-table tbody tr.is-pending { background: #fbfcf7; }
+.incident-table tbody tr.is-restored { animation: restore-flash 1.6s ease-out; }
+@keyframes restore-flash { 0% { background: #fff0ed; } 100% { background: transparent; } }
 
 .incident-loading { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 112px; color: var(--muted); font-size: 13px; }
 .loading-spinner { display: inline-block; font-size: 20px; animation: spin 1s linear infinite; }
@@ -245,6 +259,30 @@ button:focus-visible, a:focus-visible { outline: 3px solid var(--yellow); outlin
 .status-badge.status-discarded { color: #8c5345; background: #f5e4df; }
 
 .incident-list-status { margin-top: 12px; min-height: 20px; color: var(--muted); font-size: 11px; text-align: center; }
+
+/* ── Summary Panel ── */
+
+.summary-panel { padding: 26px; border: 1px solid var(--line); border-top: 3px solid var(--orange); background: var(--panel); box-shadow: var(--shadow); }
+.summary-updated { color: var(--muted); font-size: 10px; }
+.summary-groups { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; }
+.summary-group { min-height: 170px; padding: 18px; border: 1px solid var(--line); background: #fbfcfa; }
+.summary-group-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.summary-group-title { color: var(--ink); font-size: 13px; font-weight: 700; }
+.summary-group-note { margin: 5px 0 0; color: var(--muted); font-size: 10px; }
+.summary-bars { margin-top: 6px; }
+.summary-bar-row { grid-template-columns: minmax(88px, 132px) 1fr 34px; gap: 11px; margin-top: 13px; }
+.summary-bar-label { min-width: 0; color: #42514b; white-space: normal; overflow-wrap: anywhere; line-height: 1.5; }
+.summary-bar-row .bar-count { color: var(--ink); font-weight: 700; font-variant-numeric: tabular-nums; }
+.summary-group-empty { min-height: 92px; }
+
+@media (max-width: 850px) {
+  .summary-groups { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 620px) {
+  .summary-panel { padding: 17px 13px; }
+  .summary-bar-row { grid-template-columns: 92px 1fr 30px; }
+}
 
 @media (max-width: 850px) {
   .incident-list-filters .filter-field { width: 100%; }

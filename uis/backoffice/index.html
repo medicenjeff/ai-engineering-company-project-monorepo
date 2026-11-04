@@ -26,7 +26,7 @@
 
         <nav class="nav-list">
           <span class="nav-section">OPERACIONES</span>
-          <a class="nav-item" href="#overview"><span class="nav-glyph">01</span>Resumen</a>
+          <a class="nav-item" href="#summary"><span class="nav-glyph">01</span>Resumen</a>
 <a class="nav-item" href="#analysis"><span class="nav-glyph">02</span>Análisis CSV <b>4</b></a>
           <a class="nav-item" href="#incident-list"><span class="nav-glyph">03</span>Panel de incidencias</a>
           <a class="nav-item" href="#suppliers"><span class="nav-glyph">04</span>Proveedores</a>
@@ -81,6 +81,42 @@
               <article class="detail-card"><div class="card-title"><span>Por estado</span><span class="card-label">VALIDADOS</span></div><div class="empty-state">Los resultados aparecerán aquí</div></article>
               <article class="detail-card issues-card"><div class="card-title"><span>Registros inválidos</span><span class="card-label warning-label">REVISIÓN</span></div><div class="empty-state">Los problemas aparecerán aquí</div></article>
             </div>
+          </section>
+        </div>
+
+        <div class="page-content" id="summary-view" hidden>
+          <section class="page-intro">
+            <div><span class="eyebrow accent">NEXOVA · OPERACIONES</span><h1>Panel de resumen</h1><p>Métricas agregadas de todas las incidencias por estado, categoría, origen y sede.</p></div>
+            <div class="directory-summary"><span class="eyebrow">TOTAL INCIDENCIAS</span><strong id="summary-total">—</strong><span class="summary-updated" id="summary-updated"></span></div>
+          </section>
+
+          <section class="summary-panel" id="summary-panel" aria-labelledby="summary-title">
+            <div class="section-heading">
+              <div><span class="eyebrow">GET /api/incidents/summary</span><h2 id="summary-title">Métricas por dimensión</h2></div>
+              <button class="download-button refresh-button" id="refresh-summary" type="button" title="Actualizar métricas"><span aria-hidden="true">↻</span>Actualizar</button>
+            </div>
+
+            <div class="incident-loading" id="summary-loading" role="status" aria-live="polite" hidden>
+              <span class="loading-spinner" aria-hidden="true">↻</span>
+              <span>Calculando métricas…</span>
+            </div>
+
+            <div class="incident-list-error" id="summary-error" role="alert" hidden>
+              <span class="error-icon" aria-hidden="true">⚠</span>
+              <div class="incident-list-error-body">
+                <strong>No se pudo cargar el resumen</strong>
+                <p id="summary-error-msg">Inténtalo de nuevo en unos segundos.</p>
+              </div>
+              <button type="button" class="retry-btn" id="summary-retry-btn">Reintentar</button>
+            </div>
+
+            <div class="incident-empty" id="summary-empty" role="status" hidden>
+              <span class="empty-icon" aria-hidden="true">—</span>
+              <strong>Todavía no hay incidencias registradas</strong>
+              <p>Cuando se registre la primera incidencia aparecerán aquí sus totales por estado, categoría, origen y sede.</p>
+            </div>
+
+            <div class="summary-groups" id="summary-groups" hidden></div>
           </section>
         </div>
 
@@ -172,18 +208,16 @@
         <div class="page-content" id="incident-list-view" hidden>
           <section class="page-intro">
             <div><span class="eyebrow accent">NEXOVA · INCIDENCIAS</span><h1>Panel de incidencias</h1><p>Todas las incidencias registradas, con filtros y control de estado.</p></div>
-            <div class="directory-summary"><span class="eyebrow">TOTAL</span><strong id="incident-count">—</strong></div>
+            <div class="directory-summary"><span class="eyebrow">VISIBLES</span><strong id="incident-count">—</strong></div>
           </section>
 
-          <section class="incident-list-panel" aria-labelledby="incident-list-title">
+          <section class="incident-list-panel" id="incident-list-panel" aria-labelledby="incident-list-title">
             <div class="section-heading">
               <div><span class="eyebrow">LISTADO</span><h2 id="incident-list-title">Incidencias registradas</h2></div>
               <button class="download-button refresh-button" id="refresh-incidents" type="button" title="Actualizar listado"><span aria-hidden="true">↻</span>Actualizar</button>
             </div>
 
-            <div class="incident-list-error" id="incident-list-error" role="alert" hidden></div>
-
-            <div class="incident-list-filters" aria-label="Filtros de incidencias">
+            <div class="incident-list-filters" role="group" aria-label="Filtros de incidencias">
               <label class="filter-field">Estado
                 <select id="incident-filter-status">
                   <option value="">Todos los estados</option>
@@ -208,37 +242,49 @@
                   <option value="miami">Miami</option>
                 </select>
               </label>
+              <button type="button" class="text-button incident-clear-filters" id="incident-clear-filters">Limpiar filtros</button>
             </div>
 
-            <div class="incident-loading" id="incident-loading" role="status" hidden>
+            <p class="incident-notice is-success" id="incident-notice-success" role="status" aria-live="polite" hidden></p>
+            <p class="incident-notice is-error" id="incident-notice-error" role="alert" hidden></p>
+
+            <div class="incident-loading" id="incident-loading" role="status" aria-live="polite" hidden>
               <span class="loading-spinner" aria-hidden="true">↻</span>
               <span>Cargando incidencias…</span>
             </div>
 
+            <div class="incident-list-error" id="incident-list-error" role="alert" hidden>
+              <span class="error-icon" aria-hidden="true">⚠</span>
+              <div class="incident-list-error-body">
+                <strong>No se pudieron cargar las incidencias</strong>
+                <p id="incident-list-error-msg">Inténtalo de nuevo en unos segundos.</p>
+              </div>
+              <button type="button" class="retry-btn" id="incident-retry-btn">Reintentar</button>
+            </div>
+
             <div class="incident-empty" id="incident-empty" role="status" hidden>
               <span class="empty-icon" aria-hidden="true">—</span>
-              <strong>No hay incidencias</strong>
+              <strong id="incident-empty-title">No hay incidencias</strong>
               <p id="incident-empty-msg">No se encontraron incidencias con los filtros aplicados.</p>
+              <button type="button" class="text-button" id="incident-empty-clear" hidden>Limpiar filtros</button>
             </div>
 
             <div class="incident-table-wrap" id="incident-table-wrap" hidden>
               <table class="incident-table">
-                <caption class="visually-hidden">Incidencias registradas con título, categoría, origen, sede, estado y acciones</caption>
+                <caption class="visually-hidden">Incidencias registradas con título, categoría, origen, sede, estado y fecha de la última actualización</caption>
                 <thead>
                   <tr>
-                    <th scope="col">Título</th>
+                    <th scope="col">Incidencia</th>
                     <th scope="col">Categoría</th>
                     <th scope="col">Origen</th>
                     <th scope="col">Sede</th>
                     <th scope="col">Estado</th>
-                    <th scope="col">Acción</th>
+                    <th scope="col">Actualizada</th>
                   </tr>
                 </thead>
                 <tbody id="incident-rows"></tbody>
               </table>
             </div>
-
-            <div class="incident-list-status" id="incident-list-status" role="status" aria-live="polite"></div>
           </section>
         </div>
 

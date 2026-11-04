@@ -205,9 +205,10 @@ downloadButton.addEventListener("click", downloadResults);
   const incidentEmptyMsg = document.querySelector("#incident-empty-msg");
   const incidentTableWrap = document.querySelector("#incident-table-wrap");
   const incidentRows = document.querySelector("#incident-rows");
-  const incidentListStatus = document.querySelector("#incident-list-status");
 
-  const routeLinks = [...document.querySelectorAll('.nav-item[href="#analysis"], .nav-item[href="#suppliers"], .nav-item[href="#incident-form"], .nav-item[href="#incident-list"]')];
+  const summaryView = document.querySelector("#summary-view");
+
+  const routeLinks = [...document.querySelectorAll('.nav-item[href="#summary"], .nav-item[href="#analysis"], .nav-item[href="#suppliers"], .nav-item[href="#incident-form"], .nav-item[href="#incident-list"]')];
   const categoryLabels = {
     executive_search: "Headhunting ejecutivo",
     customer_service_outsourcing: "Outsourcing de atención al cliente",
@@ -603,31 +604,38 @@ downloadButton.addEventListener("click", downloadResults);
   function syncDirectoryRoute() {
     const hash = window.parent.location.hash;
 
-    const isAnalysis = hash === "#analysis" || (!hash || hash === "#overview" || hash === "#requests" || hash === "#team" || hash === "#settings");
+    const isSummary = hash === "#summary" || hash === "#overview";
+    const isAnalysis = hash === "#analysis" || (!hash || hash === "#requests" || hash === "#team" || hash === "#settings");
     const isSuppliers = hash === "#suppliers";
     const isIncidentForm = hash === "#incident-form";
     const isIncidentList = hash === "#incident-list";
 
+    summaryView.hidden = !isSummary;
     analysisView.hidden = !isAnalysis;
     suppliersView.hidden = !isSuppliers;
     incidentFormView.hidden = !isIncidentForm;
     incidentListView.hidden = !isIncidentList;
 
-    if (isAnalysis) breadcrumb.textContent = "Análisis de incidencias";
+    if (isSummary) breadcrumb.textContent = "Panel de resumen";
+    else if (isAnalysis) breadcrumb.textContent = "Análisis de incidencias";
     else if (isSuppliers) breadcrumb.textContent = "Directorio de proveedores";
     else if (isIncidentForm) breadcrumb.textContent = "Registro de incidencias";
     else if (isIncidentList) breadcrumb.textContent = "Panel de incidencias";
 
-    document.title = isSuppliers ? "Pulse Desk | Proveedores" : isIncidentForm ? "Pulse Desk | Incidencias" : isIncidentList ? "Pulse Desk | Panel de incidencias" : "Pulse Desk | Análisis de incidencias";
+    document.title = isSummary ? "Pulse Desk | Panel de resumen" : isSuppliers ? "Pulse Desk | Proveedores" : isIncidentForm ? "Pulse Desk | Incidencias" : isIncidentList ? "Pulse Desk | Panel de incidencias" : "Pulse Desk | Análisis de incidencias";
     routeLinks.forEach((link) => {
-      const active = link.hash === hash;
+      const active = isSummary ? link.hash === "#summary" : link.hash === hash;
       link.classList.toggle("active", active);
       if (active) link.setAttribute("aria-current", "page");
       else link.removeAttribute("aria-current");
     });
 
+    if (isSummary) loadSummary();
     if (isSuppliers && !suppliersLoaded) loadSuppliers();
-    if (isIncidentList) loadIncidents();
+    if (isIncidentList) {
+      loadIncidentBranchOptions();
+      loadIncidents();
+    }
   }
 
   refreshSuppliersButton.addEventListener("click", loadSuppliers);
@@ -647,191 +655,666 @@ downloadButton.addEventListener("click", downloadResults);
   window.addEventListener("hashchange", syncDirectoryRoute);
   highlightBranchField(incidentOrigin.value === "branch");
 
-  /* ───── Incident list ───── */
+  /* ───── Panel de incidencias: listado con filtros ───── */
 
   const INCIDENT_STATUS_LABELS = { open: "Abierta", in_progress: "En curso", resolved: "Resuelta", discarded: "Descartada" };
   const INCIDENT_CATEGORY_LABELS = { recruitment: "Reclutamiento", outsourcing: "Outsourcing", training: "Formación", payroll: "Nóminas", compliance: "Cumplimiento", internal: "Interna" };
   const INCIDENT_ORIGIN_LABELS = { internal: "Interno", customer: "Cliente", branch: "Sucursal" };
+  const INCIDENT_BRANCH_LABELS = { central: "Valencia (Central)", miami: "Miami" };
+  const INCIDENT_FALLBACK_BRANCHES = ["central", "miami"];
+  // Las transiciones replican la máquina de estados del backend para no ofrecer
+  // acciones que la API vaya a rechazar.
+  const INCIDENT_TRANSITIONS = {
+    open: [
+      { status: "in_progress", label: "Iniciar", className: "action-in-progress" },
+      { status: "discarded", label: "Descartar", className: "action-discard" },
+    ],
+    in_progress: [
+      { status: "resolved", label: "Resolver", className: "action-resolve" },
+      { status: "discarded", label: "Descartar", className: "action-discard" },
+    ],
+  };
 
-  let currentIncidents = [];
+  const incidentPanel = incidentListView.querySelector("#incident-list-panel");
+  const incidentListErrorMsg = incidentListError.querySelector("#incident-list-error-msg");
+  const incidentRetryButton = incidentListError.querySelector("#incident-retry-btn");
+  const incidentEmptyTitle = incidentEmpty.querySelector("#incident-empty-title");
+  const incidentEmptyClear = incidentEmpty.querySelector("#incident-empty-clear");
+  const incidentClearFilters = incidentListView.querySelector("#incident-clear-filters");
+  const incidentNoticeSuccess = incidentListView.querySelector("#incident-notice-success");
+  const incidentNoticeError = incidentListView.querySelector("#incident-notice-error");
 
-  function showIncidentLoading() {
-    incidentLoading.hidden = false;
-    incidentEmpty.hidden = true;
-    incidentTableWrap.hidden = true;
-    incidentListError.hidden = true;
+  const incidentListState = {
+    items: [],
+    pendingIds: new Set(),
+    controller: null,
+    requestId: 0,
+    total: null,
+    branches: null,
+    noticeTimer: null,
+  };
+
+  function statusLabel(status) {
+    return INCIDENT_STATUS_LABELS[status] || status || "—";
   }
 
-  function hideIncidentLoading() {
-    incidentLoading.hidden = true;
+  function branchLabel(branch) {
+    return INCIDENT_BRANCH_LABELS[branch] || branch;
+  }
+
+  function readIncidentFilters() {
+    return {
+      status: incidentFilterStatus.value,
+      origin: incidentFilterOrigin.value,
+      branch: incidentFilterBranch.value,
+    };
+  }
+
+  function hasActiveIncidentFilters(filters = readIncidentFilters()) {
+    return Boolean(filters.status || filters.origin || filters.branch);
+  }
+
+  function describeIncidentFilters(filters) {
+    const parts = [];
+    if (filters.status) parts.push(`estado «${statusLabel(filters.status)}»`);
+    if (filters.origin) parts.push(`origen «${INCIDENT_ORIGIN_LABELS[filters.origin] || filters.origin}»`);
+    if (filters.branch) parts.push(`sede «${branchLabel(filters.branch)}»`);
+    return parts;
+  }
+
+  function incidentMatchesFilters(incident, filters) {
+    if (filters.status && incident.status !== filters.status) return false;
+    if (filters.origin && incident.origin !== filters.origin) return false;
+    if (filters.branch && incident.branch !== filters.branch) return false;
+    return true;
   }
 
   function formatIncidentDate(iso) {
     if (!iso) return "—";
-    try {
-      const d = new Date(iso);
-      if (isNaN(d.getTime())) return "—";
-      const pad = (n) => String(n).padStart(2, "0");
-      return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
-    } catch {
-      return "—";
-    }
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return "—";
+    const pad = (value) => String(value).padStart(2, "0");
+    return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()} · ${pad(date.getHours())}:${pad(date.getMinutes())}`;
   }
 
-  function getStatusBadgeHTML(status) {
-    const label = INCIDENT_STATUS_LABELS[status] || status;
-    return `<span class="status-badge status-${status}">${label}</span>`;
+  function setIncidentPanelState(state) {
+    incidentPanel.setAttribute("aria-busy", state === "loading" ? "true" : "false");
+    incidentLoading.hidden = state !== "loading";
+    incidentListError.hidden = state !== "error";
+    incidentEmpty.hidden = state !== "empty";
+    incidentTableWrap.hidden = state !== "table";
   }
 
-  function getActionButtonsHTML(incident) {
-    if (incident.status === "resolved" || incident.status === "discarded") {
-      return `<span class="status-final">Estado final</span>`;
-    }
-    let buttons = "";
-    if (incident.status === "open") {
-      buttons += `<button type="button" class="action-btn action-in-progress" data-incident-id="${incident.id}" data-new-status="in_progress">Iniciar</button>`;
-      buttons += `<button type="button" class="action-btn action-discard" data-incident-id="${incident.id}" data-new-status="discarded">Descartar</button>`;
-    } else if (incident.status === "in_progress") {
-      buttons += `<button type="button" class="action-btn action-resolve" data-incident-id="${incident.id}" data-new-status="resolved">Resolver</button>`;
-      buttons += `<button type="button" class="action-btn action-discard" data-incident-id="${incident.id}" data-new-status="discarded">Descartar</button>`;
-    }
-    return buttons;
+  function showIncidentNotice(kind, message) {
+    const target = kind === "error" ? incidentNoticeError : incidentNoticeSuccess;
+    const other = kind === "error" ? incidentNoticeSuccess : incidentNoticeError;
+    other.hidden = true;
+    other.textContent = "";
+    target.textContent = message;
+    target.hidden = false;
+    clearTimeout(incidentListState.noticeTimer);
+    incidentListState.noticeTimer = setTimeout(() => {
+      target.hidden = true;
+      target.textContent = "";
+    }, kind === "error" ? 8000 : 5000);
   }
 
-  function renderIncidentRow(incident) {
-    const catLabel = INCIDENT_CATEGORY_LABELS[incident.category] || incident.category || "—";
-    const originLabel = INCIDENT_ORIGIN_LABELS[incident.origin] || incident.origin || "—";
-    const tr = document.createElement("tr");
-    tr.dataset.id = incident.id;
-    tr.innerHTML = `
-      <td class="incident-cell-title">
-        <strong>${escapeHtml(incident.title)}</strong>
-        <span class="incident-date">${formatIncidentDate(incident.created_at)}</span>
-      </td>
-      <td>${escapeHtml(catLabel)}</td>
-      <td>${escapeHtml(originLabel)}</td>
-      <td>${escapeHtml(incident.branch || "—")}</td>
-      <td>${getStatusBadgeHTML(incident.status)}</td>
-      <td class="incident-cell-actions">${getActionButtonsHTML(incident)}</td>
-    `;
-    return tr;
+  function clearIncidentNotices() {
+    clearTimeout(incidentListState.noticeTimer);
+    [incidentNoticeSuccess, incidentNoticeError].forEach((element) => {
+      element.hidden = true;
+      element.textContent = "";
+    });
   }
 
   function updateIncidentCount() {
-    const total = currentIncidents.length;
-    incidentCount.textContent = total === 0 ? "0" : String(total);
+    const visible = incidentListState.items.length;
+    const total = incidentListState.total;
+    const filtered = hasActiveIncidentFilters();
+    const showsTotal = filtered && typeof total === "number" && total > visible;
+    incidentCount.textContent = showsTotal ? `${visible} de ${total}` : String(visible);
+    incidentCount.title = showsTotal
+      ? `${visible} incidencias visibles de ${total} registradas`
+      : `${visible} incidencias visibles`;
+  }
+
+  function createIncidentRow(incident, options = {}) {
+    const pending = Boolean(options.pending);
+    const row = document.createElement("tr");
+    row.dataset.incidentRow = incident.id;
+    row.className = pending ? "is-pending" : "";
+    row.setAttribute("aria-busy", pending ? "true" : "false");
+
+    const titleCell = document.createElement("td");
+    titleCell.className = "incident-cell-title";
+    const title = document.createElement("strong");
+    title.textContent = incident.title;
+    const description = document.createElement("span");
+    description.className = "incident-date";
+    description.textContent = incident.description || "";
+    description.title = incident.description || "";
+    titleCell.append(title, description);
+
+    const categoryCell = document.createElement("td");
+    categoryCell.textContent = INCIDENT_CATEGORY_LABELS[incident.category] || incident.category || "—";
+
+    const originCell = document.createElement("td");
+    originCell.textContent = INCIDENT_ORIGIN_LABELS[incident.origin] || incident.origin || "—";
+
+    const branchCell = document.createElement("td");
+    branchCell.textContent = incident.branch ? branchLabel(incident.branch) : "—";
+
+    const statusCell = document.createElement("td");
+    statusCell.className = "incident-cell-status";
+    const badge = document.createElement("span");
+    badge.className = `status-badge status-${incident.status}`;
+    badge.textContent = statusLabel(incident.status);
+    statusCell.append(badge);
+    if (pending) {
+      const saving = document.createElement("span");
+      saving.className = "incident-pending";
+      saving.textContent = "Guardando…";
+      statusCell.append(saving);
+    } else {
+      const transitions = INCIDENT_TRANSITIONS[incident.status] || [];
+      if (transitions.length === 0) {
+        const final = document.createElement("span");
+        final.className = "status-final";
+        final.textContent = "Estado final";
+        statusCell.append(final);
+      } else {
+        const actions = document.createElement("div");
+        actions.className = "incident-cell-actions";
+        transitions.forEach((transition) => {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = `action-btn ${transition.className}`;
+          button.dataset.incidentId = incident.id;
+          button.dataset.nextStatus = transition.status;
+          button.textContent = transition.label;
+          button.setAttribute(
+            "aria-label",
+            `${transition.label}: pasar «${incident.title}» a ${statusLabel(transition.status)}`,
+          );
+          actions.append(button);
+        });
+        statusCell.append(actions);
+      }
+    }
+
+    const updatedCell = document.createElement("td");
+    updatedCell.className = "incident-updated";
+    updatedCell.textContent = formatIncidentDate(incident.updated_at || incident.created_at);
+
+    row.append(titleCell, categoryCell, originCell, branchCell, statusCell, updatedCell);
+    return row;
+  }
+
+  function findIncidentRow(incidentId) {
+    return [...incidentRows.children].find((row) => row.dataset.incidentRow === incidentId) || null;
+  }
+
+  function replaceIncidentRow(incident, options = {}) {
+    const current = findIncidentRow(incident.id);
+    const next = createIncidentRow(incident, options);
+    if (current) current.replaceWith(next);
+    else incidentRows.append(next);
+    return next;
+  }
+
+  function removeIncidentRow(incidentId) {
+    findIncidentRow(incidentId)?.remove();
+  }
+
+  function renderIncidentTable() {
+    incidentRows.replaceChildren(...incidentListState.items.map((incident) => createIncidentRow(incident, {
+      pending: incidentListState.pendingIds.has(incident.id),
+    })));
+    setIncidentPanelState("table");
+    updateIncidentCount();
+  }
+
+  function renderIncidentEmptyState() {
+    const filters = readIncidentFilters();
+    if (hasActiveIncidentFilters(filters)) {
+      incidentEmptyTitle.textContent = "Ninguna incidencia coincide con los filtros";
+      incidentEmptyMsg.textContent =
+        `No hay resultados para ${describeIncidentFilters(filters).join(", ")}. ` +
+        "Prueba con otro criterio o limpia los filtros para ver el listado completo.";
+      incidentEmptyClear.hidden = false;
+    } else {
+      incidentEmptyTitle.textContent = "Todavía no hay incidencias";
+      incidentEmptyMsg.textContent =
+        "Cuando el equipo registre la primera incidencia aparecerá aquí, con su estado y su sede.";
+      incidentEmptyClear.hidden = true;
+    }
+    incidentListState.items = [];
+    updateIncidentCount();
+    setIncidentPanelState("empty");
+  }
+
+  function describeIncidentLoadError(error) {
+    const message = String(error?.message || "");
+    if (!navigator.onLine) {
+      return "Parece que no hay conexión a internet. Recupera la conexión y vuelve a intentarlo.";
+    }
+    if (/failed to fetch|networkerror|load failed|fetch/i.test(message)) {
+      return "No se pudo conectar con la API. Comprueba tu conexión e inténtalo de nuevo.";
+    }
+    return message || "No se pudieron cargar las incidencias. Inténtalo de nuevo en unos segundos.";
+  }
+
+  function renderBranchOptions(branches) {
+    const previous = incidentFilterBranch.value;
+    const values = [...new Set(branches.filter(Boolean))].sort((left, right) =>
+      branchLabel(left).localeCompare(branchLabel(right), "es"),
+    );
+    const options = [new Option("Todas las sedes", "")];
+    values.forEach((value) => options.push(new Option(branchLabel(value), value)));
+    incidentFilterBranch.replaceChildren(...options);
+    incidentFilterBranch.value = values.includes(previous) ? previous : "";
+  }
+
+  async function loadIncidentBranchOptions() {
+    if (incidentListState.branches !== null) return;
+    renderBranchOptions(INCIDENT_FALLBACK_BRANCHES);
+    try {
+      const response = await fetch(INCIDENTS_API_URL, { headers: { Accept: "application/json" } });
+      if (!response.ok) return;
+      const incidents = await response.json();
+      if (!Array.isArray(incidents)) return;
+      incidentListState.branches = incidents.map((incident) => incident.branch).filter(Boolean);
+      incidentListState.total = incidents.length;
+      renderBranchOptions(incidentListState.branches);
+      // Solo se refresca el contador si el listado ya está en pantalla;
+      // durante la carga el indicador debe seguir mostrando «…».
+      if (!incidentTableWrap.hidden) updateIncidentCount();
+    } catch {
+      // El filtro de sede mantiene las opciones conocidas; el error real se
+      // informa al cargar el listado.
+    }
   }
 
   async function loadIncidents() {
-    const status = incidentFilterStatus.value;
-    const origin = incidentFilterOrigin.value;
-    const branch = incidentFilterBranch.value;
+    incidentListState.controller?.abort();
+    const controller = new AbortController();
+    incidentListState.controller = controller;
+    const requestId = ++incidentListState.requestId;
 
-    showIncidentLoading();
+    const filters = readIncidentFilters();
+    setIncidentPanelState("loading");
+    incidentCount.textContent = "…";
 
     try {
       const params = new URLSearchParams();
-      if (status) params.set("status", status);
-      if (origin) params.set("origin", origin);
-      if (branch) params.set("branch", branch);
+      if (filters.status) params.set("status", filters.status);
+      if (filters.origin) params.set("origin", filters.origin);
+      if (filters.branch) params.set("branch", filters.branch);
+      const query = params.size ? `?${params}` : "";
 
-      const apiBase = resolveApiBaseUrl();
-      const res = await fetch(`${apiBase}/api/incidents?${params.toString()}`, {
-        headers: { "Accept": "application/json" }
+      const response = await fetch(`${INCIDENTS_API_URL}${query}`, {
+        headers: { Accept: "application/json" },
+        signal: controller.signal,
       });
-
-      if (!res.ok) {
-        throw new Error(`Error del servidor (${res.status})`);
+      const payload = await response.json().catch(() => null);
+      if (requestId !== incidentListState.requestId) return;
+      if (!response.ok) {
+        throw new Error(
+          apiErrorMessage(payload, `El servidor respondió con un error (HTTP ${response.status}).`),
+        );
+      }
+      if (!Array.isArray(payload)) {
+        throw new Error("La API devolvió una respuesta inesperada al listar incidencias.");
       }
 
-      currentIncidents = await res.json();
+      incidentListState.items = payload;
+      if (!hasActiveIncidentFilters(filters)) incidentListState.total = payload.length;
 
-      hideIncidentLoading();
-      incidentListError.hidden = true;
-      updateIncidentCount();
-
-      if (currentIncidents.length === 0) {
-        incidentEmpty.hidden = false;
-        incidentTableWrap.hidden = true;
-        const parts = [];
-        if (status) parts.push(`estado "${INCIDENT_STATUS_LABELS[status] || status}"`);
-        if (origin) parts.push(`origen "${INCIDENT_ORIGIN_LABELS[origin] || origin}"`);
-        if (branch) parts.push(`sede "${branch}"`);
-        incidentEmptyMsg.textContent = parts.length
-          ? `No hay incidencias con ${parts.join(", ")}. Prueba a modificar los filtros.`
-          : "No hay incidencias registradas. Crea una desde el formulario de registro.";
+      if (payload.length === 0) {
+        renderIncidentEmptyState();
       } else {
-        incidentEmpty.hidden = true;
-        incidentTableWrap.hidden = false;
-        incidentRows.innerHTML = "";
-        currentIncidents.forEach((inc) => {
-          incidentRows.appendChild(renderIncidentRow(inc));
-        });
+        renderIncidentTable();
       }
-    } catch (err) {
-      hideIncidentLoading();
-      incidentTableWrap.hidden = true;
-      incidentEmpty.hidden = true;
-      incidentListError.hidden = false;
-      incidentListError.innerHTML = `<span class="error-icon" aria-hidden="true">⚠</span><span>${escapeHtml(err.message || "Error al cargar incidencias.")}</span> <button type="button" class="retry-btn" id="incident-retry-btn">Reintentar</button>`;
-      const retryBtn = incidentListError.querySelector("#incident-retry-btn");
-      if (retryBtn) retryBtn.addEventListener("click", loadIncidents);
+    } catch (error) {
+      if (error?.name === "AbortError" || requestId !== incidentListState.requestId) return;
+      incidentListState.items = [];
+      incidentListErrorMsg.textContent = describeIncidentLoadError(error);
+      incidentCount.textContent = "—";
+      setIncidentPanelState("error");
+    } finally {
+      if (incidentListState.controller === controller) incidentListState.controller = null;
     }
   }
 
-  async function updateIncidentStatusInline(event) {
-    const button = event.target.closest('[data-incident-id][data-new-status]');
-    if (!button) return;
-    if (button.disabled) return;
-
+  async function updateIncidentStatus(button) {
     const incidentId = button.dataset.incidentId;
-    const newStatus = button.dataset.newStatus;
-    const originalHTML = button.innerHTML;
-    button.disabled = true;
-    button.textContent = "…";
+    const nextStatus = button.dataset.nextStatus;
+    if (!incidentId || !nextStatus) return;
+    if (incidentListState.pendingIds.has(incidentId)) return;
+
+    const index = incidentListState.items.findIndex((incident) => incident.id === incidentId);
+    if (index === -1) return;
+
+    const previous = incidentListState.items[index];
+
+    // Actualización optimista: el estado se refleja al instante y se revierte si
+    // la API rechaza el cambio.
+    incidentListState.pendingIds.add(incidentId);
+    incidentListState.items[index] = { ...previous, status: nextStatus };
+    replaceIncidentRow(incidentListState.items[index], { pending: true });
+    clearIncidentNotices();
 
     try {
-      const apiBase = resolveApiBaseUrl();
-      const res = await fetch(`${apiBase}/api/incidents/${incidentId}/status`, {
+      const response = await fetch(`${INCIDENTS_API_URL}/${encodeURIComponent(incidentId)}/status`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json", "Accept": "application/json" },
-        body: JSON.stringify({ status: newStatus })
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ status: nextStatus }),
       });
-
-      if (!res.ok) {
-        let errMsg = `Error (${res.status})`;
-        try {
-          const errBody = await res.json();
-          if (errBody.detail) errMsg = errBody.detail;
-        } catch {}
-        throw new Error(errMsg);
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(apiErrorMessage(payload, `No se pudo actualizar el estado (HTTP ${response.status}).`));
+      }
+      if (!payload || payload.id !== incidentId || payload.status !== nextStatus) {
+        throw new Error("La API devolvió una respuesta inesperada al actualizar la incidencia.");
       }
 
-      const updated = await res.json();
-      const row = document.querySelector(`tr[data-id="${incidentId}"]`);
-      if (row) {
-        const idx = currentIncidents.findIndex((i) => i.id === incidentId);
-        if (idx !== -1) currentIncidents[idx] = updated;
-        row.replaceWith(renderIncidentRow(updated));
+      const currentIndex = incidentListState.items.findIndex((incident) => incident.id === incidentId);
+      const stillVisible = incidentMatchesFilters(payload, readIncidentFilters());
+      if (stillVisible) {
+        if (currentIndex === -1) incidentListState.items.push(payload);
+        else incidentListState.items[currentIndex] = payload;
+        replaceIncidentRow(payload);
+      } else {
+        removeIncidentRow(incidentId);
+        if (currentIndex !== -1) incidentListState.items.splice(currentIndex, 1);
       }
+      incidentListState.pendingIds.delete(incidentId);
+      if (incidentListState.controller) await loadIncidents();
+      else if (incidentListState.items.length === 0) renderIncidentEmptyState();
+      else { setIncidentPanelState("table"); updateIncidentCount(); }
 
-      incidentListStatus.textContent = `Incidencia actualizada a "${INCIDENT_STATUS_LABELS[newStatus] || newStatus}".`;
-      setTimeout(() => { incidentListStatus.textContent = ""; }, 4000);
-    } catch (err) {
-      button.disabled = false;
-      button.innerHTML = originalHTML;
-      incidentListStatus.textContent = `Error al actualizar: ${err.message}`;
-      setTimeout(() => { incidentListStatus.textContent = ""; }, 5000);
+      showIncidentNotice(
+        "success",
+        stillVisible
+          ? `Incidencia «${payload.title}» actualizada a «${statusLabel(payload.status)}».`
+          : `Incidencia «${payload.title}» actualizada a «${statusLabel(payload.status)}» y ya no coincide con los filtros aplicados.`,
+      );
+    } catch (error) {
+      // Rollback: se restaura el estado anterior y se avisa al usuario.
+      const currentIndex = incidentListState.items.findIndex((incident) => incident.id === incidentId);
+      if (currentIndex !== -1 && incidentMatchesFilters(previous, readIncidentFilters())) {
+        incidentListState.items[currentIndex] = previous;
+        const restored = replaceIncidentRow(previous);
+        restored.classList.add("is-restored");
+        const restoredButton = [...restored.querySelectorAll("button")].find(
+          (candidate) => candidate.dataset.nextStatus === nextStatus,
+        );
+        (restoredButton || restored.querySelector("button"))?.focus();
+      }
+      showIncidentNotice(
+        "error",
+        `No se pudo actualizar «${previous.title}»: ${error?.message || "error desconocido"}. ` +
+          `Se ha restaurado el estado «${statusLabel(previous.status)}».`,
+      );
+    } finally {
+      incidentListState.pendingIds.delete(incidentId);
     }
   }
 
-  /* ───── Incident list event listeners ───── */
+  /* ───── Panel de incidencias: eventos ───── */
 
-  incidentFilterStatus.addEventListener("change", loadIncidents);
-  incidentFilterOrigin.addEventListener("change", loadIncidents);
-  incidentFilterBranch.addEventListener("change", loadIncidents);
-  incidentRefreshButton.addEventListener("click", loadIncidents);
-  incidentRows.addEventListener("click", updateIncidentStatusInline);
+  incidentFilterStatus.addEventListener("change", () => { clearIncidentNotices(); loadIncidents(); });
+  incidentFilterOrigin.addEventListener("change", () => { clearIncidentNotices(); loadIncidents(); });
+  incidentFilterBranch.addEventListener("change", () => { clearIncidentNotices(); loadIncidents(); });
+  incidentRefreshButton.addEventListener("click", () => { clearIncidentNotices(); loadIncidents(); });
+  incidentRetryButton.addEventListener("click", () => { clearIncidentNotices(); loadIncidents(); });
+
+  function resetIncidentFilters() {
+    incidentFilterStatus.value = "";
+    incidentFilterOrigin.value = "";
+    incidentFilterBranch.value = "";
+    clearIncidentNotices();
+    loadIncidents();
+  }
+
+  incidentClearFilters.addEventListener("click", resetIncidentFilters);
+  incidentEmptyClear.addEventListener("click", resetIncidentFilters);
+
+  incidentRows.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-incident-id][data-next-status]");
+    if (!button) return;
+    updateIncidentStatus(button);
+  });
+
+  /* ───── Panel de resumen: métricas agregadas de /api/incidents/summary ───── */
+
+  const SUMMARY_URL = `${INCIDENTS_API_URL}/summary`;
+
+  const SUMMARY_BRANCH_LABELS = {
+    central: "Central — Sede Valencia",
+    valencia_operations: "Valencia — Operaciones",
+    miami_office: "Miami Office",
+    remote: "Remoto (empleado sin sede fija)",
+  };
+  const SUMMARY_GROUPS = [
+    {
+      key: "by_status",
+      title: "Por estado",
+      note: "Ciclo de vida de la incidencia",
+      label: statusLabel,
+      order: ["open", "in_progress", "resolved", "discarded"],
+    },
+    {
+      key: "by_category",
+      title: "Por categoría",
+      note: "Línea de negocio u operativa",
+      label: (value) => value === "none" ? "Sin categoría" : value,
+      order: ["technical_failure", "process_error", "client_complaint", "candidate_issue", "staff_issue", "sla_breach", "data_quality", "other"],
+    },
+    {
+      key: "by_origin",
+      title: "Por origen",
+      note: "Quién reporta la incidencia",
+      label: (value) => INCIDENT_ORIGIN_LABELS[value] || value,
+      order: ["customer", "branch", "internal"],
+    },
+    {
+      key: "by_branch",
+      title: "Por sede",
+      note: "Oficina que atiende la incidencia",
+      label: (value) => SUMMARY_BRANCH_LABELS[value] || value,
+      order: Object.keys(SUMMARY_BRANCH_LABELS),
+    },
+  ];
+
+  const summaryPanel = summaryView.querySelector("#summary-panel");
+  const summaryTotal = summaryView.querySelector("#summary-total");
+  const summaryUpdated = summaryView.querySelector("#summary-updated");
+  const summaryLoading = summaryView.querySelector("#summary-loading");
+  const summaryError = summaryView.querySelector("#summary-error");
+  const summaryErrorMsg = summaryView.querySelector("#summary-error-msg");
+  const summaryRetryButton = summaryView.querySelector("#summary-retry-btn");
+  const summaryEmpty = summaryView.querySelector("#summary-empty");
+  const summaryGroups = summaryView.querySelector("#summary-groups");
+  const summaryRefreshButton = summaryView.querySelector("#refresh-summary");
+
+  const summaryState = {
+    controller: null,
+    requestId: 0,
+    loaded: false,
+  };
+
+  function formatSummaryTimestamp(date) {
+    const pad = (value) => String(value).padStart(2, "0");
+    return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()} · ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  }
+
+  function setSummaryPanelState(state) {
+    summaryPanel.setAttribute("aria-busy", state === "loading" ? "true" : "false");
+    summaryLoading.hidden = state !== "loading";
+    summaryError.hidden = state !== "error";
+    summaryEmpty.hidden = state !== "empty";
+    summaryGroups.hidden = state !== "data";
+    summaryRefreshButton.disabled = state === "loading";
+  }
+
+  function orderSummaryEntries(values, order) {
+    const rank = new Map(order.map((key, index) => [key, index]));
+    return Object.entries(values || {}).sort((left, right) => {
+      const leftRank = rank.has(left[0]) ? rank.get(left[0]) : Number.MAX_SAFE_INTEGER;
+      const rightRank = rank.has(right[0]) ? rank.get(right[0]) : Number.MAX_SAFE_INTEGER;
+      if (leftRank !== rightRank) return leftRank - rightRank;
+      return left[0].localeCompare(right[0], "es");
+    });
+  }
+
+  function buildSummaryGroup(group, values, total) {
+    const entries = orderSummaryEntries({
+      ...Object.fromEntries(group.order.map((value) => [value, 0])),
+      ...values,
+    }, group.order);
+    const groupTotal = entries.reduce((sum, [, count]) => sum + count, 0);
+    const card = document.createElement("article");
+    card.className = "summary-group";
+    card.dataset.summaryGroup = group.key;
+
+    const heading = document.createElement("div");
+    heading.className = "summary-group-heading";
+    const title = document.createElement("span");
+    title.className = "summary-group-title";
+    title.textContent = group.title;
+    const badge = document.createElement("span");
+    badge.className = "card-label";
+    badge.textContent = `${groupTotal} total`;
+    heading.append(title, badge);
+
+    const note = document.createElement("p");
+    note.className = "summary-group-note";
+    note.textContent = group.note;
+
+    card.append(heading, note);
+
+    if (entries.length === 0) {
+      const placeholder = document.createElement("div");
+      placeholder.className = "empty-state summary-group-empty";
+      placeholder.textContent = "Sin datos";
+      card.append(placeholder);
+      return card;
+    }
+
+    const list = document.createElement("div");
+    list.className = "summary-bars";
+    const max = Math.max(...entries.map(([, count]) => count), 1);
+    entries.forEach(([value, count]) => {
+      const row = document.createElement("div");
+      row.className = "bar-row summary-bar-row";
+      row.dataset.summaryValue = value;
+
+      const label = document.createElement("span");
+      label.className = "summary-bar-label";
+      label.textContent = group.label(value);
+      label.title = group.label(value);
+
+      const track = document.createElement("div");
+      track.className = "bar-track";
+      const fill = document.createElement("div");
+      fill.className = "bar-fill";
+      fill.style.width = `${(count / max) * 100}%`;
+      track.append(fill);
+
+      const amount = document.createElement("span");
+      amount.className = "bar-count";
+      amount.textContent = String(count);
+      const share = total > 0 ? Math.round((count / total) * 100) : 0;
+      amount.title = `${count} de ${total} incidencias (${share}%)`;
+
+      row.append(label, track, amount);
+      list.append(row);
+    });
+    card.append(list);
+    return card;
+  }
+
+  function renderSummary(summary) {
+    const total = Object.values(summary.by_status || {}).reduce((sum, count) => sum + count, 0);
+
+    summaryGroups.replaceChildren(
+      ...SUMMARY_GROUPS.map((group) => buildSummaryGroup(group, summary[group.key], total)),
+    );
+
+    summaryTotal.textContent = String(total);
+    summaryTotal.title = `${total} incidencias registradas`;
+    summaryUpdated.textContent = `Actualizado ${formatSummaryTimestamp(new Date())}`;
+
+    setSummaryPanelState(total === 0 ? "empty" : "data");
+  }
+
+  function describeSummaryLoadError(error) {
+    const message = String(error?.message || "");
+    if (!navigator.onLine) {
+      return "Parece que no hay conexión a internet. Recupera la conexión y vuelve a intentarlo.";
+    }
+    if (/failed to fetch|networkerror|load failed|fetch/i.test(message)) {
+      return "No se pudo conectar con la API. Comprueba tu conexión e inténtalo de nuevo.";
+    }
+    return message || "No se pudieron cargar las métricas. Inténtalo de nuevo en unos segundos.";
+  }
+
+  async function loadSummary(force = false) {
+    if (summaryState.loaded && !force) return;
+
+    summaryState.controller?.abort();
+    const controller = new AbortController();
+    summaryState.controller = controller;
+    const requestId = ++summaryState.requestId;
+
+    setSummaryPanelState("loading");
+    summaryTotal.textContent = "…";
+    summaryUpdated.textContent = "";
+
+    try {
+      const response = await fetch(SUMMARY_URL, {
+        headers: { Accept: "application/json" },
+        signal: controller.signal,
+      });
+      const payload = await response.json().catch(() => null);
+      if (requestId !== summaryState.requestId) return;
+      if (!response.ok) {
+        throw new Error(
+          apiErrorMessage(payload, `El servidor respondió con un error (HTTP ${response.status}).`),
+        );
+      }
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+        throw new Error("La API devolvió una respuesta inesperada al calcular el resumen.");
+      }
+      for (const group of SUMMARY_GROUPS) {
+        const values = payload[group.key];
+        if (!values || typeof values !== "object" || Array.isArray(values) ||
+            !Object.values(values).every((count) => Number.isSafeInteger(count) && count >= 0)) {
+          throw new Error("La API devolvió métricas incompletas o no válidas. Vuelve a intentarlo.");
+        }
+      }
+      const totals = SUMMARY_GROUPS.map((group) => Object.values(payload[group.key]).reduce((sum, count) => sum + count, 0));
+      if (!totals.every((total) => Number.isSafeInteger(total) && total === totals[0])) {
+        throw new Error("Los totales del resumen no coinciden entre dimensiones. Vuelve a intentarlo.");
+      }
+
+      renderSummary(payload);
+      summaryState.loaded = true;
+    } catch (error) {
+      if (error?.name === "AbortError" || requestId !== summaryState.requestId) return;
+      summaryState.loaded = false;
+      summaryErrorMsg.textContent = describeSummaryLoadError(error);
+      summaryTotal.textContent = "—";
+      summaryUpdated.textContent = "";
+      setSummaryPanelState("error");
+    } finally {
+      if (summaryState.controller === controller) summaryState.controller = null;
+    }
+  }
+
+  summaryRefreshButton.addEventListener("click", () => loadSummary(true));
+  summaryRetryButton.addEventListener("click", () => loadSummary(true));
 
   /* ───── Init ───── */
 
