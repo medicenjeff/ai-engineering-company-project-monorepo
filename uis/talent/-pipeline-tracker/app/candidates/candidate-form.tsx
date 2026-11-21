@@ -131,11 +131,8 @@ export default function CandidateForm({ mode, candidate }: CandidateFormProps) {
           : "Candidatura registrada correctamente.",
       });
 
-      // Actualiza el estado del servidor (listados/cachés) sin recarga completa
       router.refresh();
-
-      // Navega al detalle de la candidatura guardada
-      setTimeout(() => router.push(`/candidates/${saved.id}`), 700);
+      router.push(`/candidates/${saved.id}`);
     } catch {
       setFeedback({
         tone: "error",
@@ -143,6 +140,7 @@ export default function CandidateForm({ mode, candidate }: CandidateFormProps) {
           ? "No se pudo actualizar la candidatura. Inténtalo de nuevo."
           : "No se pudo registrar la candidatura. Inténtalo de nuevo.",
       });
+    } finally {
       setIsSaving(false);
     }
   };

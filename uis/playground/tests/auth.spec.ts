@@ -270,7 +270,7 @@ test("la ruta nueva espera su validacion sin mostrar contenido protegido", async
   });
   await page.getByRole("link", { name: "Mi perfil", exact: true }).click();
   await expect(page).toHaveURL(/\/account\/profile$/);
-  await expect(page.getByRole("status")).toHaveText("Comprobando sesion...");
+  await expect(page.getByRole("status")).toHaveText("Comprobando sesión...");
   await expect(page.getByRole("heading", { name: "Mi perfil", exact: true })).toHaveCount(0);
   await expect(page.locator("iframe")).toHaveCount(0);
   release();
@@ -458,7 +458,7 @@ test("errores 422 del registro se muestran sin crear sesion", async ({ page }) =
   expect(await page.evaluate(() => localStorage.getItem("nexova.access_token"))).toBeNull();
 });
 
-test("registro informa del codigo HTTP si el servidor responde sin JSON", async ({ page }) => {
+test("registro muestra un error legible si el servidor responde sin JSON", async ({ page }) => {
   await page.route("**/api/backend/users", (route) => route.fulfill({
     status: 500, contentType: "text/plain", body: "Internal Server Error",
   }));
@@ -466,7 +466,9 @@ test("registro informa del codigo HTTP si el servidor responde sin JSON", async 
   await page.getByLabel("Email", { exact: true }).fill(account.email);
   await page.getByLabel("Contraseña", { exact: true }).fill("secure-password");
   await page.getByRole("button", { name: "Registrarme" }).click();
-  await expect(page.locator(".auth-error")).toContainText("/users (HTTP 500)");
+  await expect(page.locator(".auth-error")).toHaveText("El servicio devolvió una respuesta no válida. Inténtalo de nuevo.");
+  await expect(page.locator(".auth-error")).not.toContainText("500");
+  await expect(page.locator(".auth-error")).not.toContainText("Internal Server Error");
   expect(await page.evaluate(() => localStorage.getItem("nexova.access_token"))).toBeNull();
 });
 
@@ -476,7 +478,7 @@ test("login sin access_token no guarda una sesion invalida", async ({ page }) =>
   await page.getByLabel("Email", { exact: true }).fill(account.email);
   await page.getByLabel("Contraseña", { exact: true }).fill("secure-password");
   await page.getByRole("button", { name: "Entrar" }).click();
-  await expect(page.locator(".auth-error")).toContainText("no devolvio un token valido");
+  await expect(page.locator(".auth-error")).toHaveText("No se pudo iniciar sesión. Inténtalo de nuevo.");
   expect(await page.evaluate(() => localStorage.getItem("nexova.access_token"))).toBeNull();
 });
 

@@ -1,10 +1,12 @@
 from io import BytesIO
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi.testclient import TestClient
 import pandas as pd
+from starlette.datastructures import UploadFile as StarletteUploadFile
 
 from ai_engineering_company_project_monorepo.api.main import app
 from ai_engineering_company_project_monorepo.services.incident_analysis import (
@@ -47,7 +49,7 @@ def incident_payload(**overrides):
 ])
 def test_incident_validation_identifies_field(incident_client, field, value):
     response = incident_client.post("/api/incidents", json=incident_payload(**{field: value}))
-    assert response.status_code == 400
+    assert response.status_code == 422
     assert any(error["field"] == field for error in response.json()["errors"])
     assert incident_client.get("/api/incidents").json() == []
 
@@ -69,7 +71,7 @@ def test_incident_crud_accepts_briefing_values(incident_client, category):
 @pytest.mark.parametrize("field,value", [("branch", "miami"), ("origin", "bad"), ("status", "CLOSED"), ("category", "TECHNICAL")])
 def test_incident_invalid_filters_return_field_errors(incident_client, field, value):
     response = incident_client.get("/api/incidents", params={field: value})
-    assert response.status_code == 400
+    assert response.status_code == 422
     assert response.json()["errors"][0]["field"] == field
 
 
@@ -93,7 +95,7 @@ def test_incident_missing_and_invalid_status(incident_client):
     assert incident_client.get("/api/incidents/missing").status_code == 404
     assert incident_client.patch("/api/incidents/missing/status", json={"status": "in_progress"}).status_code == 404
     response = incident_client.patch("/api/incidents/missing/status", json={"status": "invalid"})
-    assert response.status_code == 400
+    assert response.status_code == 422
     assert response.json()["errors"][0]["field"] == "status"
 
 
@@ -103,7 +105,10 @@ def test_incident_internal_error_never_exposes_traceback(incident_client, monkey
     monkeypatch.setattr("ai_engineering_company_project_monorepo.api.incidents.compute_summary", fail)
     response = incident_client.get("/api/incidents/summary")
     assert response.status_code == 500
-    assert response.json() == {"detail": "Error interno del servidor"}
+    assert response.json() == {
+        "detail": "Error interno del servidor",
+        "code": "internal_error",
+    }
     assert "Traceback" not in response.text
     assert "private" not in response.text
 
@@ -136,6 +141,26 @@ def test_analyze_incidents_accepts_multipart_csv() -> None:
         "satisfaction_scored_closed_cases": 1,
         "validation_issues": {},
     }
+
+
+def test_analyze_upload_read_failure_returns_sanitized_500(incident_client, monkeypatch):
+    monkeypatch.setattr(
+        StarletteUploadFile,
+        "read",
+        AsyncMock(side_effect=OSError("/srv/private/uploads/secret.csv")),
+    )
+    response = incident_client.post(
+        "/api/incidents/analyze",
+        files={"file": ("incidents.csv", VALID_CSV, "text/csv")},
+    )
+
+    assert response.status_code == 500
+    assert response.json() == {
+        "detail": "No se pudo leer el archivo CSV.",
+        "code": "internal_error",
+    }
+    assert "/srv/private" not in response.text
+    assert "Traceback" not in response.text
 
 
 def test_analyze_incidents_rejects_missing_columns() -> None:

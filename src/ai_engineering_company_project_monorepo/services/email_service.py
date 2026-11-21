@@ -12,6 +12,11 @@ from urllib.request import Request, urlopen
 logger = logging.getLogger(__name__)
 
 
+def _email_failure() -> bool:
+    logger.error("Password reset email could not be sent; check email service and reset URL configuration")
+    return False
+
+
 def send_password_reset_email(email: str, token: str) -> bool:
     try:
         reset_url = urlsplit(os.environ["PASSWORD_RESET_URL"])
@@ -23,15 +28,18 @@ def send_password_reset_email(email: str, token: str) -> bool:
         query = [(key, value) for key, value in parse_qsl(reset_url.query) if key != "token"]
         query.append(("token", token))
         link = urlunsplit(reset_url._replace(query=urlencode(query)))
-        subject = "Restablece tu contrasena"
-        text = (
-            "Recibimos una solicitud para restablecer tu contrasena.\n\n"
-            f"Abre este enlace para elegir una nueva contrasena:\n\n{link}\n\n"
-            "El enlace tiene una vigencia limitada y solo puede utilizarse una vez.\n"
-            "Si no solicitaste este cambio, puedes ignorar este correo.\n"
-        )
-        safe_link = escape(link, quote=True)
-        html = f"""<!doctype html>
+    except (KeyError, TypeError, ValueError):
+        return _email_failure()
+
+    subject = "Restablece tu contrasena"
+    text = (
+        "Recibimos una solicitud para restablecer tu contrasena.\n\n"
+        f"Abre este enlace para elegir una nueva contrasena:\n\n{link}\n\n"
+        "El enlace tiene una vigencia limitada y solo puede utilizarse una vez.\n"
+        "Si no solicitaste este cambio, puedes ignorar este correo.\n"
+    )
+    safe_link = escape(link, quote=True)
+    html = f"""<!doctype html>
 <html lang="es">
 <head>
 <meta charset="utf-8">
@@ -55,8 +63,9 @@ def send_password_reset_email(email: str, token: str) -> bool:
 </td></tr></table>
 </td></tr></table>
 </body></html>"""
-        api_key = os.getenv("RESEND_API_KEY", "").strip()
-        if api_key:
+    api_key = os.getenv("RESEND_API_KEY", "").strip()
+    if api_key:
+        try:
             payload = {
                 "from": os.environ["EMAIL_FROM"],
                 "to": [email],
@@ -74,25 +83,42 @@ def send_password_reset_email(email: str, token: str) -> bool:
                 },
                 method="POST",
             )
+        except (KeyError, TypeError, ValueError):
+            return _email_failure()
+        try:
             with urlopen(request, timeout=10) as response:
-                if not 200 <= response.status < 300:
-                    raise ValueError("Email service rejected the message")
-            return True
+                accepted = 200 <= response.status < 300
+        except (OSError, smtplib.SMTPException):
+            return _email_failure()
+        if not accepted:
+            return _email_failure()
+        return True
+
+    try:
+        sender = os.environ["SMTP_FROM"]
+        host = os.environ["SMTP_HOST"]
+        port = int(os.getenv("SMTP_PORT", "587"))
+        username = os.getenv("SMTP_USERNAME")
+        password = os.environ["SMTP_PASSWORD"] if username else None
+    except (KeyError, TypeError, ValueError):
+        return _email_failure()
+
+    try:
         message = EmailMessage()
-        message["From"] = os.environ["SMTP_FROM"]
+        message["From"] = sender
         message["To"] = email
         message["Subject"] = subject
         message.set_content(text)
         message.add_alternative(html, subtype="html")
-        host = os.environ["SMTP_HOST"]
-        port = int(os.getenv("SMTP_PORT", "587"))
+    except (TypeError, ValueError):
+        return _email_failure()
+
+    try:
         with smtplib.SMTP(host, port, timeout=10) as smtp:
             smtp.starttls(context=ssl.create_default_context())
-            username = os.getenv("SMTP_USERNAME")
             if username:
-                smtp.login(username, os.environ["SMTP_PASSWORD"])
+                smtp.login(username, password)
             smtp.send_message(message)
-        return True
-    except (KeyError, ValueError, OSError, smtplib.SMTPException):
-        logger.error("Password reset email could not be sent; check email service and reset URL configuration")
-        return False
+    except (OSError, smtplib.SMTPException):
+        return _email_failure()
+    return True

@@ -4,8 +4,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncIterator
 
-from fastapi import FastAPI, Request
-from fastapi.exception_handlers import http_exception_handler
+from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -36,13 +35,30 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(title="Auth API", lifespan=lifespan)
 
 
+def _http_error_code(status_code: int) -> str:
+    return {
+        status.HTTP_400_BAD_REQUEST: "bad_request",
+        status.HTTP_401_UNAUTHORIZED: "unauthorized",
+        status.HTTP_403_FORBIDDEN: "forbidden",
+        status.HTTP_404_NOT_FOUND: "not_found",
+        status.HTTP_409_CONFLICT: "conflict",
+        status.HTTP_500_INTERNAL_SERVER_ERROR: "internal_error",
+        status.HTTP_422_UNPROCESSABLE_CONTENT: "validation_error",
+    }.get(status_code, "request_failed")
+
+
 # ── Global 500: nunca mostrar el stack trace al cliente ─────────────────
 
 
 @app.exception_handler(StarletteHTTPException)
 async def http_exception_wrapper(request: Request, error: StarletteHTTPException) -> JSONResponse:
-    """Delegar HTTPException controladas al manejador por defecto de FastAPI."""
-    return await http_exception_handler(request, error)
+    """Return a stable JSON envelope without serializing arbitrary detail objects."""
+    detail = error.detail if isinstance(error.detail, str) else "La solicitud no pudo completarse."
+    return JSONResponse(
+        status_code=error.status_code,
+        content={"detail": detail, "code": _http_error_code(error.status_code)},
+        headers=error.headers,
+    )
 
 
 @app.exception_handler(Exception)
@@ -51,11 +67,11 @@ async def global_exception_handler(request: Request, error: Exception) -> JSONRe
     _logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
     return JSONResponse(
         status_code=500,
-        content={"detail": "Error interno del servidor"},
+        content={"detail": "Error interno del servidor", "code": "internal_error"},
     )
 
 
-# ── Validation errors → 400 con campo y mensaje claros ──────────────────
+# ── Validation errors → 422 con campo y mensaje claros ──────────────────
 
 
 @app.exception_handler(RequestValidationError)
@@ -73,7 +89,7 @@ async def handle_request_validation(request: Request, error: RequestValidationEr
     if request.method == "POST" and request.url.path == "/auth/forgot-password":
         return JSONResponse(status_code=200, content={"message": PASSWORD_RESET_MESSAGE})
 
-    # Para el resto de rutas → 400 con errores por campo
+    # Para el resto de rutas → 422 con errores por campo
     errors: list[dict[str, str]] = []
     for validation_error in error.errors():
         field = ".".join(str(loc) for loc in validation_error.get("loc", []) if loc not in ("body", "query"))
@@ -81,8 +97,12 @@ async def handle_request_validation(request: Request, error: RequestValidationEr
         errors.append({"field": field, "message": msg})
 
     return JSONResponse(
-        status_code=400,
-        content={"detail": "Error de validación", "errors": errors},
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        content={
+            "detail": "Error de validación",
+            "code": "validation_error",
+            "errors": errors,
+        },
     )
 
 

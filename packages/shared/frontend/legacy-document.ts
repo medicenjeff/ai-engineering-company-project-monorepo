@@ -3,7 +3,12 @@ import path from "node:path";
 import { load } from "cheerio";
 
 export async function legacyDocument() {
-  const source = await readFile(path.join(process.cwd(), "index.html"), "utf8");
+  let source: string;
+  try {
+    source = await readFile(path.join(process.cwd(), "index.html"), "utf8");
+  } catch {
+    throw new Error("No se pudo cargar el espacio de trabajo.");
+  }
   const document = load(source);
   document("script[src], link[rel=stylesheet]").each((_, element) => {
     const attribute = element.tagName === "script" ? "src" : "href";
@@ -24,7 +29,12 @@ export async function legacyDocument() {
       const headers = new Headers(options.headers || (input instanceof Request ? input.headers : undefined));
       const token = localStorage.getItem('nexova.access_token');
       if (token) headers.set('Authorization', 'Bearer ' + token);
-      const response = await originalFetch('/api/backend' + url.pathname + url.search, { ...options, headers });
+      let response;
+      try {
+        response = await originalFetch('/api/backend' + url.pathname + url.search, { ...options, headers });
+      } catch {
+        throw new Error('No se pudo conectar con el servicio. Comprueba tu conexión e inténtalo de nuevo.');
+      }
       if (response.status === 401) {
         localStorage.removeItem('nexova.access_token');
         window.parent.location.replace('/login');

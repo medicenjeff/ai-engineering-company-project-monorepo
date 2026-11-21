@@ -60,6 +60,7 @@ export default function CandidatesTable({ candidates, total }: CandidatesTablePr
   const [refreshState, setRefreshState] = useState<
     "idle" | "loading" | "success" | "error"
   >("idle");
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const status = searchParams.get("status") ?? "";
   const stage = searchParams.get("stage") ?? "";
@@ -68,6 +69,7 @@ export default function CandidatesTable({ candidates, total }: CandidatesTablePr
   // Re-obtiene las candidaturas (GET /records) mostrando los tres estados UI:
   // cargando → éxito o error. Sin recarga completa (fetch en cliente).
   const handleRefresh = async () => {
+    setIsRefreshing(true);
     setRefreshState("loading");
     try {
       const data = await listRecords();
@@ -78,6 +80,8 @@ export default function CandidatesTable({ candidates, total }: CandidatesTablePr
       router.refresh();
     } catch {
       setRefreshState("error");
+    } finally {
+      setIsRefreshing(false);
     }
   };
 
@@ -143,11 +147,11 @@ export default function CandidatesTable({ candidates, total }: CandidatesTablePr
           <button
             type="button"
             onClick={handleRefresh}
-            disabled={refreshState === "loading"}
+            disabled={isRefreshing}
             className="inline-flex items-center justify-center gap-1.5 rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50"
             aria-label="Actualizar candidaturas"
           >
-            {refreshState === "loading" ? (
+            {isRefreshing ? (
               <>
                 <span className="h-3 w-3 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-700" />
                 Actualizando…

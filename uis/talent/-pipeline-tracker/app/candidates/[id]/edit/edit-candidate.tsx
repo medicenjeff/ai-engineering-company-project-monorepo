@@ -34,6 +34,8 @@ export default function EditCandidate({ candidateId }: EditCandidateProps) {
             ? "not_found"
             : "error"
         );
+      } finally {
+        if (!cancelled) setPhase((current) => current === "loading" ? "error" : current);
       }
     }
     load();

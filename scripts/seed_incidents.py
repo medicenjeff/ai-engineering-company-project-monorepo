@@ -32,16 +32,31 @@ from nexova_incidents import (
 
 def load_csv_rows(csv_path: Path) -> list[dict[str, str]]:
     """Read a CSV file and return a list of row dicts (all values as strings)."""
-    with csv_path.open(newline="", encoding="utf-8") as fh:
-        reader = csv.DictReader(fh)
-        if reader.fieldnames is None:
-            raise ValueError("CSV file has no headers")
-        validate_headers(reader.fieldnames)
-        return [{key: value or "" for key, value in row.items() if key is not None} for row in reader]
+    try:
+        with csv_path.open(newline="", encoding="utf-8") as fh:
+            reader = csv.DictReader(fh, strict=True)
+            if reader.fieldnames is None:
+                raise ValueError("El CSV no contiene encabezados.")
+            validate_headers(reader.fieldnames)
+            rows = []
+            for row in reader:
+                if None in row:
+                    raise ValueError(f"El CSV contiene columnas adicionales en la línea {reader.line_num}.")
+                rows.append({key: value or "" for key, value in row.items()})
+            return rows
+    except FileNotFoundError:
+        raise ValueError("No existe el archivo CSV indicado.") from None
+    except PermissionError:
+        raise ValueError("No hay permiso para leer el archivo CSV.") from None
+    except (OSError, csv.Error, UnicodeError):
+        raise ValueError("No se pudo leer el CSV o su formato no es válido.") from None
 
 
 def validate_headers(fieldnames: list[str]) -> None:
     """Check that required columns are present in the CSV headers."""
+    duplicates = sorted({column for column in fieldnames if fieldnames.count(column) > 1})
+    if duplicates:
+        raise ValueError(f"CSV contains duplicate columns: {', '.join(duplicates)}")
     missing = [col for col in REQUIRED_COLUMNS_SEED if col not in fieldnames]
     if missing:
         raise ValueError(
@@ -93,32 +108,38 @@ def seed_incidents(csv_path: Path, database_path: Path) -> dict[str, Any]:
     skipped_duplicates = 0
     invalid_rows: list[tuple[int, str, list[str]]] = []  # (csv_line_number, incident_id, errors)
 
-    database_path.parent.mkdir(parents=True, exist_ok=True)
-    with TinyDB(database_path) as database:
-        table = database.table("incidents")
-        incident_query = Query()
+    try:
+        database_path.parent.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        raise OSError("No se pudo crear el directorio de destino de la base de datos.") from None
 
-        for idx, raw in enumerate(rows, start=2):  # CSV line numbers (1-based, header=1)
-            incident_id = raw.get("ticket_id", "").strip()
+    try:
+        with TinyDB(database_path) as database:
+            table = database.table("incidents")
+            incident_query = Query()
 
-            # Validate the row
-            errors = validate_seed_row(raw)
-            if errors:
-                invalid_rows.append((idx, incident_id or f"row_{idx}", errors))
-                continue
+            for idx, raw in enumerate(rows, start=2):  # CSV line numbers (1-based, header=1)
+                incident_id = raw.get("ticket_id", "").strip()
 
-            try:
-                incident = transform_row(raw)
-            except (ValueError, KeyError, TypeError) as error:
-                invalid_rows.append((idx, incident_id or f"row_{idx}", [str(error)]))
-                continue
+                errors = validate_seed_row(raw)
+                if errors:
+                    invalid_rows.append((idx, incident_id or f"row_{idx}", errors))
+                    continue
 
-            if table.contains(incident_query.id == incident.id):
-                skipped_duplicates += 1
-                continue
+                try:
+                    incident = transform_row(raw)
+                except (ValueError, KeyError, TypeError):
+                    invalid_rows.append((idx, incident_id or f"row_{idx}", ["No se pudo convertir la fila; revisa fecha, categoría y estado."]))
+                    continue
 
-            table.insert(incident.to_document())
-            inserted += 1
+                if table.contains(incident_query.id == incident.id):
+                    skipped_duplicates += 1
+                    continue
+
+                table.insert(incident.to_document())
+                inserted += 1
+    except (OSError, ValueError):
+        raise OSError("No se pudo leer o escribir la base de datos configurada.") from None
 
     return {
         "inserted": inserted,
@@ -141,14 +162,17 @@ def report_results(results: dict[str, int | list[tuple[int, str, list[str]]]]) -
 
     invalid_details: list[tuple[int, str, list[str]]] = results.get("invalid_details", [])  # type: ignore[assignment]
     if invalid_details:
-        print()
-        print("  DETALLE DE REGISTROS INVÁLIDOS:")
-        print(f"  {'LÍNEA':>6}  {'ID':<20}  ERRORES")
-        print(f"  {'─'*6}  {'─'*20}  {'─'*40}")
-        for line_num, row_id, errors in invalid_details:
+        print(file=sys.stderr)
+        print("  DETALLE DE REGISTROS INVÁLIDOS:", file=sys.stderr)
+        print(f"  {'LÍNEA':>6}  {'CAMPO':<24}  ERROR", file=sys.stderr)
+        print(f"  {'─'*6}  {'─'*24}  {'─'*32}", file=sys.stderr)
+        for line_num, _row_id, errors in invalid_details:
             for err in errors:
-                print(f"  {line_num:>6}  {row_id:<20}  {err}")
-        print()
+                field = err.partition(":")[0]
+                if not field.replace("_", "").isalnum():
+                    field = "fila"
+                print(f"  {line_num:>6}  {field:<24}  valor no válido", file=sys.stderr)
+        print(file=sys.stderr)
 
 
 def main() -> None:
@@ -169,17 +193,25 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    if not args.csv.exists():
-        parser.exit(1, f"ERROR: No se encontró el archivo CSV: {args.csv}\n")
+    try:
+        csv_is_file = args.csv.is_file()
+    except OSError:
+        print("ERROR: No se pudo acceder al CSV indicado.", file=sys.stderr)
+        sys.exit(1)
+    if not csv_is_file:
+        print("ERROR: No existe un archivo CSV regular en la ruta indicada.", file=sys.stderr)
+        sys.exit(1)
 
     try:
         results = seed_incidents(args.csv, args.database)
     except (ValueError, csv.Error, OSError) as error:
-        parser.exit(1, f"ERROR durante la carga: {error}\n")
+        print(f"ERROR durante la carga: {error}", file=sys.stderr)
+        sys.exit(1)
 
     report_results(results)
 
     if results["invalid"] > 0:
+        print(f"ERROR: Se rechazaron {results['invalid']} filas inválidas.", file=sys.stderr)
         sys.exit(1)
 
 

@@ -22,6 +22,8 @@ a { color: #0b514d; }
 .auth-field input[aria-invalid="true"] { border-color: #c94b3d; }
 .auth-success { padding: 12px; color: #0b514d; background: #dcefe8; }
 .auth-loading { min-height: 100vh; display: grid; align-content: center; justify-content: center; gap: 16px; }
+.auth-loading-spinner { width: 20px; height: 20px; border: 2px solid #aebfb6; border-right-color: #126e67; border-radius: 50%; animation: auth-spin .8s linear infinite; }
+@keyframes auth-spin { to { transform: rotate(360deg); } }
 .session-bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 22px; border-bottom: 1px solid #dfe6df; background: white; font-size: 13px; }
 .session-bar nav { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; }
 .session-bar span { overflow-wrap: anywhere; }

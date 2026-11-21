@@ -44,6 +44,31 @@ function clearError() {
   errorBanner.textContent = "";
 }
 
+async function safeFetch(url, options) {
+  try {
+    return await fetch(url, options);
+  } catch (error) {
+    if (error?.name === "AbortError") throw error;
+    throw new Error("No se pudo conectar con el servicio. Comprueba tu conexión e inténtalo de nuevo.");
+  }
+}
+
+async function readJson(response) {
+  try {
+    return await response.json();
+  } catch {
+    throw new Error("El servicio devolvió una respuesta no válida. Inténtalo de nuevo.");
+  }
+}
+
+function friendlyError(error, fallback) {
+  const message = String(error?.message || "");
+  if (!navigator.onLine || /failed to fetch|networkerror|load failed/i.test(message)) {
+    return "No se pudo conectar con el servicio. Comprueba tu conexión e inténtalo de nuevo.";
+  }
+  return fallback;
+}
+
 function selectFile(file) {
   clearError();
   if (!file) return;
@@ -78,19 +103,24 @@ function listRows(values) {
 function issueRows(issues) {
   const entries = Object.entries(issues || {});
   if (!entries.length) return "<div class=\"empty-state valid-state\">No hay registros inválidos</div>";
-  return entries.map(([issue, detail]) => `<div class="issue-row"><span>${issue}</span><strong>${detail.count}</strong><small>fila(s): ${detail.rows.join(", ")}</small></div>`).join("");
+  return entries.map(([issue, detail]) => {
+    const rows = Array.isArray(detail?.rows) ? detail.rows : [];
+    return `<div class="issue-row"><span>${issue}</span><strong>${detail?.count ?? 0}</strong><small>fila(s): ${rows.join(", ")}</small></div>`;
+  }).join("");
 }
 
 function renderResults(summary) {
-  const satisfaction = summary.average_satisfaction_closed === null ? "—" : Number(summary.average_satisfaction_closed).toFixed(2);
+  const validationIssues = summary?.validation_issues ?? {};
+  const satisfactionValue = summary?.average_satisfaction_closed;
+  const satisfaction = satisfactionValue == null ? "—" : Number(satisfactionValue).toFixed(2);
   metricGrid.innerHTML = [
-    metricCard("Total procesados", summary.total_processed, "todos los registros"),
-    metricCard("Registros válidos", summary.valid_records, "listos para métricas"),
-    metricCard("Registros inválidos", summary.invalid_records, `${Object.keys(summary.validation_issues || {}).length} tipo(s) de problema`),
-    metricCard("Satisfacción media", satisfaction, `${summary.satisfaction_scored_closed_cases} caso(s) cerrado(s) puntuado(s)`),
+    metricCard("Total procesados", summary?.total_processed ?? 0, "todos los registros"),
+    metricCard("Registros válidos", summary?.valid_records ?? 0, "listos para métricas"),
+    metricCard("Registros inválidos", summary?.invalid_records ?? 0, `${Object.keys(validationIssues).length} tipo(s) de problema`),
+    metricCard("Satisfacción media", satisfaction, `${summary?.satisfaction_scored_closed_cases ?? 0} caso(s) cerrado(s) puntuado(s)`),
   ].join("");
-  detailGrid.innerHTML = `<article class="detail-card"><div class="card-title"><span>Por categoría</span><span class="card-label">VALIDADOS</span></div>${listRows(summary.by_category)}</article><article class="detail-card"><div class="card-title"><span>Por estado</span><span class="card-label">VALIDADOS</span></div>${listRows(summary.by_status)}</article><article class="detail-card issues-card"><div class="card-title"><span>Registros inválidos</span><span class="card-label warning-label">REVISIÓN</span></div>${issueRows(summary.validation_issues)}</article>`;
-  resultState.textContent = `${summary.total_processed} registros analizados`;
+  detailGrid.innerHTML = `<article class="detail-card"><div class="card-title"><span>Por categoría</span><span class="card-label">VALIDADOS</span></div>${listRows(summary?.by_category)}</article><article class="detail-card"><div class="card-title"><span>Por estado</span><span class="card-label">VALIDADOS</span></div>${listRows(summary?.by_status)}</article><article class="detail-card issues-card"><div class="card-title"><span>Registros inválidos</span><span class="card-label warning-label">REVISIÓN</span></div>${issueRows(validationIssues)}</article>`;
+  resultState.textContent = `${summary?.total_processed ?? 0} registros analizados`;
   resultState.style.color = "var(--teal)";
   resultState.style.background = "var(--mint)";
   downloadButton.disabled = false;
@@ -101,11 +131,11 @@ async function downloadResults() {
   downloadButton.disabled = true;
   downloadButton.innerHTML = "<span aria-hidden=\"true\">↻</span> Preparando...";
   try {
-    const response = await fetch(EXPORT_URL);
-    if (!response.ok) {
-      const payload = await response.json().catch(() => ({}));
-      throw new Error(payload.detail || "No hay resultados disponibles para descargar.");
+    const response = await safeFetch(EXPORT_URL);
+    if (response.status === 404) {
+      throw new Error("No hay resultados disponibles para descargar. Ejecuta primero un análisis.");
     }
+    if (!response.ok) throw new Error("No se pudieron descargar los resultados. Inténtalo de nuevo.");
     const blob = await response.blob();
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
@@ -115,7 +145,7 @@ async function downloadResults() {
     link.remove();
     URL.revokeObjectURL(link.href);
   } catch (error) {
-    showError(error.message || "No se pudo descargar el CSV.");
+    showError(friendlyError(error, "No se pudo descargar el CSV. Inténtalo de nuevo."));
   } finally {
     downloadButton.disabled = false;
     downloadButton.innerHTML = "<span aria-hidden=\"true\">↓</span> Descargar CSV";
@@ -131,14 +161,14 @@ async function analyzeFile() {
   try {
     const formData = new FormData();
     formData.append("file", selectedCsv);
-    const response = await fetch(API_URL, { method: "POST", body: formData });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.detail || "La API no pudo procesar el fichero.");
+    const response = await safeFetch(API_URL, { method: "POST", body: formData });
+    const payload = await readJson(response);
+    if (!response.ok) throw new Error("No se pudo analizar el CSV. Revisa el formato y vuelve a intentarlo.");
     renderResults(payload);
     document.querySelector("#results").scrollIntoView({ behavior: "smooth", block: "start" });
   } catch (error) {
     resultState.textContent = "Análisis fallido";
-    showError(error.message || "No se pudo conectar con la API.");
+    showError(friendlyError(error, "No se pudo analizar el fichero. Comprueba el formato e inténtalo de nuevo."));
   } finally {
     analyzeButton.disabled = !selectedCsv;
     analyzeButton.innerHTML = "<span class=\"button-arrow\">↗</span>Analizar fichero";
@@ -167,6 +197,7 @@ downloadButton.addEventListener("click", downloadResults);
   const supplierStatus = document.querySelector("#supplier-status");
   const supplierError = document.querySelector("#supplier-error");
   const refreshSuppliersButton = document.querySelector("#refresh-suppliers");
+  const refreshSuppliersIdleContent = refreshSuppliersButton.innerHTML;
   const countryFilter = document.querySelector("#supplier-country-filter");
   const categoryFilter = document.querySelector("#supplier-category-filter");
   const createSupplierForm = document.querySelector("#supplier-create-form");
@@ -225,27 +256,22 @@ downloadButton.addEventListener("click", downloadResults);
   let suppliersLoaded = false;
   let loadController = null;
 
-  function apiErrorMessage(payload, fallback) {
-    const detail = payload?.detail;
-    if (typeof detail === "string") return detail;
-    if (Array.isArray(detail)) {
-      return detail.map((issue) => {
-        const field = Array.isArray(issue.loc)
-          ? issue.loc.filter((part) => part !== "body").join(".")
-          : "";
-        return `${field ? `${field}: ` : ""}${issue.msg || "Entrada no válida"}`;
-      }).join("; ");
-    }
+  function apiErrorMessage(_payload, fallback) {
     return fallback;
   }
 
   function clearSupplierError() {
     supplierError.hidden = true;
-    supplierError.textContent = "";
+    supplierError.replaceChildren();
   }
 
   function showSupplierError(message) {
-    supplierError.textContent = message;
+    const retryButton = document.createElement("button");
+    retryButton.type = "button";
+    retryButton.className = "retry-btn";
+    retryButton.textContent = "Actualizar directorio";
+    retryButton.addEventListener("click", loadSuppliers);
+    supplierError.replaceChildren(document.createTextNode(`${message} `), retryButton);
     supplierError.hidden = false;
   }
 
@@ -265,14 +291,17 @@ downloadButton.addEventListener("click", downloadResults);
   }
 
   function renderSupplier(supplier) {
+    supplier = supplier ?? {};
+    const productCategories = Array.isArray(supplier.product_categories) ? supplier.product_categories : [];
+    const status = supplier.status === "suspended" ? "suspended" : "active";
     const row = document.createElement("tr");
-    createCell(row, supplier.name, "supplier-name");
-    createCell(row, supplier.country);
+    createCell(row, supplier.name ?? "—", "supplier-name");
+    createCell(row, supplier.country ?? "—");
 
     const categoryCell = document.createElement("td");
     const categoryList = document.createElement("ul");
     categoryList.className = "category-list";
-    supplier.product_categories.forEach((category) => {
+    productCategories.forEach((category) => {
       const item = document.createElement("li");
       item.textContent = categoryLabels[category] || category;
       categoryList.append(item);
@@ -297,7 +326,7 @@ downloadButton.addEventListener("click", downloadResults);
     rateInput.step = "0.01";
     rateInput.required = true;
     rateInput.inputMode = "decimal";
-    rateInput.value = String(supplier.rate);
+    rateInput.value = String(supplier.rate ?? "");
     rateLabel.append(rateInput);
     const saveRateButton = document.createElement("button");
     saveRateButton.type = "submit";
@@ -309,8 +338,8 @@ downloadButton.addEventListener("click", downloadResults);
 
     const statusCell = document.createElement("td");
     const statusBadge = document.createElement("span");
-    statusBadge.className = `status-badge ${supplier.status === "active" ? "is-active" : "is-suspended"}`;
-    statusBadge.textContent = supplier.status === "active" ? "Activo" : "Suspendido";
+    statusBadge.className = `status-badge ${status === "active" ? "is-active" : "is-suspended"}`;
+    statusBadge.textContent = status === "active" ? "Activo" : "Suspendido";
     statusCell.append(statusBadge);
     row.append(statusCell);
 
@@ -319,9 +348,9 @@ downloadButton.addEventListener("click", downloadResults);
     statusButton.type = "button";
     statusButton.className = "row-action status-action";
     statusButton.dataset.action = "status";
-    statusButton.dataset.supplierId = supplier.id;
-    statusButton.dataset.status = supplier.status === "active" ? "suspended" : "active";
-    statusButton.textContent = supplier.status === "active" ? "Suspender" : "Activar";
+    statusButton.dataset.supplierId = supplier.id ?? "";
+    statusButton.dataset.status = status === "active" ? "suspended" : "active";
+    statusButton.textContent = status === "active" ? "Suspender" : "Activar";
     statusButton.setAttribute("aria-label", `${statusButton.textContent} a ${supplier.name}`);
     actionCell.append(statusButton);
     row.append(actionCell);
@@ -335,6 +364,7 @@ downloadButton.addEventListener("click", downloadResults);
     clearSupplierError();
     refreshSuppliersButton.disabled = true;
     refreshSuppliersButton.setAttribute("aria-busy", "true");
+    refreshSuppliersButton.innerHTML = '<span class="loading-spinner" aria-hidden="true">↻</span> Actualizando…';
     if (!suppliersLoaded) {
       supplierStatus.textContent = "Cargando proveedores…";
       supplierStatus.hidden = false;
@@ -345,8 +375,8 @@ downloadButton.addEventListener("click", downloadResults);
       if (countryFilter.value) params.set("country", countryFilter.value);
       if (categoryFilter.value) params.set("category", categoryFilter.value);
       const query = params.size ? `?${params}` : "";
-      const response = await fetch(`${suppliersUrl}${query}`, { signal: controller.signal });
-      const payload = await response.json().catch(() => ({}));
+      const response = await safeFetch(`${suppliersUrl}${query}`, { signal: controller.signal });
+      const payload = await readJson(response);
       if (!response.ok) {
         throw new Error(apiErrorMessage(payload, "No se pudo cargar el directorio."));
       }
@@ -361,14 +391,13 @@ downloadButton.addEventListener("click", downloadResults);
     } catch (error) {
       if (error.name === "AbortError") return;
       supplierStatus.hidden = true;
-      showSupplierError(error.message?.toLowerCase().includes("fetch")
-        ? "No se pudo conectar con la API. Comprueba que FastAPI esté activo y que el puerto 8000 esté disponible."
-        : error.message || "No se pudo conectar con la API.");
+      showSupplierError(friendlyError(error, "No se pudo cargar el directorio. Inténtalo de nuevo."));
     } finally {
       if (loadController === controller) {
         loadController = null;
         refreshSuppliersButton.disabled = false;
         refreshSuppliersButton.removeAttribute("aria-busy");
+        refreshSuppliersButton.innerHTML = refreshSuppliersIdleContent;
       }
     }
   }
@@ -395,24 +424,22 @@ downloadButton.addEventListener("click", downloadResults);
     createSupplierButton.disabled = true;
     createSupplierButton.textContent = "Registrando…";
     try {
-      const response = await fetch(suppliersUrl, {
+      const response = await safeFetch(suppliersUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const result = await response.json().catch(() => ({}));
+      const result = await readJson(response);
       if (!response.ok) {
         throw new Error(apiErrorMessage(result, "La API rechazó los datos del proveedor."));
       }
 
       createSupplierForm.reset();
       await loadSuppliers();
-      supplierFormSuccess.textContent = `Proveedor «${result.name}» registrado correctamente.`;
+      supplierFormSuccess.textContent = `Proveedor «${result?.name ?? "nuevo"}» registrado correctamente.`;
       supplierFormSuccess.hidden = false;
     } catch (error) {
-      supplierFormError.textContent = error.message?.toLowerCase().includes("fetch")
-        ? "No se pudo conectar con la API. Comprueba que FastAPI esté activo e inténtalo de nuevo."
-        : error.message || "No se pudo registrar el proveedor.";
+      supplierFormError.textContent = friendlyError(error, "No se pudo registrar el proveedor. Revisa los datos e inténtalo de nuevo.");
       supplierFormError.hidden = false;
     } finally {
       createSupplierButton.disabled = false;
@@ -427,18 +454,18 @@ downloadButton.addEventListener("click", downloadResults);
     button.disabled = true;
     clearSupplierError();
     try {
-      const response = await fetch(`${suppliersUrl}/${supplierId}/rate`, {
+      const response = await safeFetch(`${suppliersUrl}/${supplierId}/rate`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ rate: input.value }),
       });
-      const result = await response.json().catch(() => ({}));
+      const result = await readJson(response);
       if (!response.ok) {
         throw new Error(apiErrorMessage(result, "No se pudo actualizar la tarifa."));
       }
       replaceSupplier(result);
     } catch (error) {
-      showSupplierError(error.message || "No se pudo actualizar la tarifa.");
+      showSupplierError(friendlyError(error, "No se pudo actualizar la tarifa. Inténtalo de nuevo."));
     } finally {
       button.disabled = false;
     }
@@ -450,18 +477,19 @@ downloadButton.addEventListener("click", downloadResults);
     button.disabled = true;
     clearSupplierError();
     try {
-      const response = await fetch(`${suppliersUrl}/${supplierId}/status`, {
+      const response = await safeFetch(`${suppliersUrl}/${supplierId}/status`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: nextStatus }),
       });
-      const result = await response.json().catch(() => ({}));
+      const result = await readJson(response);
       if (!response.ok) {
         throw new Error(apiErrorMessage(result, "No se pudo cambiar el estado."));
       }
       replaceSupplier(result);
     } catch (error) {
-      showSupplierError(error.message || "No se pudo cambiar el estado.");
+      showSupplierError(friendlyError(error, "No se pudo cambiar el estado. Inténtalo de nuevo."));
+    } finally {
       button.disabled = false;
     }
   }
@@ -495,7 +523,7 @@ downloadButton.addEventListener("click", downloadResults);
     };
     let found = false;
     errors.forEach((issue) => {
-      const field = String(issue.field || issue.loc?.at(-1) || "").split(".").at(-1);
+      const field = String(issue?.field || issue?.loc?.at(-1) || "").split(".").at(-1);
       const message = fields[field];
       if (!message) return;
       showIncidentFieldError(message[0], message[1]);
@@ -571,13 +599,13 @@ downloadButton.addEventListener("click", downloadResults);
     toggleIncidentLoading(true);
 
     try {
-      const response = await fetch(INCIDENTS_API_URL, {
+      const response = await safeFetch(INCIDENTS_API_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title, description, category, origin, branch }),
       });
 
-      const payload = await response.json().catch(() => ({}));
+      const payload = await readJson(response);
 
       if (!response.ok) {
         showIncidentApiErrors(payload);
@@ -587,11 +615,9 @@ downloadButton.addEventListener("click", downloadResults);
       incidentForm.reset();
       incidentCategory.value = "other";
       highlightBranchField(incidentOrigin.value === "branch");
-      showIncidentSuccess(`Incidencia «${payload.title}» registrada correctamente.`);
+      showIncidentSuccess(`Incidencia «${payload?.title ?? "nueva"}» registrada correctamente.`);
     } catch (error) {
-      incidentFormError.textContent = !navigator.onLine || /failed to fetch|networkerror|load failed/i.test(error.message || "")
-        ? "No se pudo conectar con el servicio. Comprueba tu conexión e inténtalo de nuevo."
-        : error.message || "No se pudo registrar la incidencia. Comprueba los datos e inténtalo de nuevo.";
+      incidentFormError.textContent = friendlyError(error, "No se pudo registrar la incidencia. Revisa los campos indicados e inténtalo de nuevo.");
       incidentFormError.hidden = false;
     } finally {
       toggleIncidentLoading(false);
@@ -646,7 +672,7 @@ downloadButton.addEventListener("click", downloadResults);
     if (isSummary) loadSummary();
     if (isSuppliers && !suppliersLoaded) loadSuppliers();
     if (isIncidentList) {
-      loadIncidentBranchOptions();
+      renderBranchOptions(INCIDENT_FALLBACK_BRANCHES);
       loadIncidents();
     }
   }
@@ -928,26 +954,6 @@ downloadButton.addEventListener("click", downloadResults);
     incidentFilterBranch.value = values.includes(previous) ? previous : "";
   }
 
-  async function loadIncidentBranchOptions() {
-    if (incidentListState.branches !== null) return;
-    renderBranchOptions(INCIDENT_FALLBACK_BRANCHES);
-    try {
-      const response = await fetch(INCIDENTS_API_URL, { headers: { Accept: "application/json" } });
-      if (!response.ok) return;
-      const incidents = await response.json();
-      if (!Array.isArray(incidents)) return;
-      incidentListState.branches = incidents.map((incident) => incident.branch).filter(Boolean);
-      incidentListState.total = incidents.length;
-      renderBranchOptions([...INCIDENT_FALLBACK_BRANCHES, ...incidentListState.branches]);
-      // Solo se refresca el contador si el listado ya está en pantalla;
-      // durante la carga el indicador debe seguir mostrando «…».
-      if (!incidentTableWrap.hidden) updateIncidentCount();
-    } catch {
-      // El filtro de sede mantiene las opciones conocidas; el error real se
-      // informa al cargar el listado.
-    }
-  }
-
   async function loadIncidents() {
     incidentListState.controller?.abort();
     const controller = new AbortController();
@@ -965,15 +971,15 @@ downloadButton.addEventListener("click", downloadResults);
       if (filters.branch) params.set("branch", filters.branch);
       const query = params.size ? `?${params}` : "";
 
-      const response = await fetch(`${INCIDENTS_API_URL}${query}`, {
+      const response = await safeFetch(`${INCIDENTS_API_URL}${query}`, {
         headers: { Accept: "application/json" },
         signal: controller.signal,
       });
-      const payload = await response.json().catch(() => null);
+      const payload = await readJson(response);
       if (requestId !== incidentListState.requestId) return;
       if (!response.ok) {
         throw new Error(
-          apiErrorMessage(payload, `El servidor respondió con un error (HTTP ${response.status}).`),
+          apiErrorMessage(payload, "No se pudieron cargar las incidencias. Inténtalo de nuevo."),
         );
       }
       if (!Array.isArray(payload)) {
@@ -1018,14 +1024,14 @@ downloadButton.addEventListener("click", downloadResults);
     clearIncidentNotices();
 
     try {
-      const response = await fetch(`${INCIDENTS_API_URL}/${encodeURIComponent(incidentId)}/status`, {
+      const response = await safeFetch(`${INCIDENTS_API_URL}/${encodeURIComponent(incidentId)}/status`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify({ status: nextStatus }),
       });
-      const payload = await response.json().catch(() => null);
+      const payload = await readJson(response);
       if (!response.ok) {
-        throw new Error(apiErrorMessage(payload, `No se pudo actualizar el estado (HTTP ${response.status}).`));
+        throw new Error(apiErrorMessage(payload, "No se pudo actualizar el estado. Inténtalo de nuevo."));
       }
       if (!payload || payload.id !== incidentId || payload.status !== nextStatus) {
         throw new Error("La API devolvió una respuesta inesperada al actualizar la incidencia.");
@@ -1280,15 +1286,15 @@ downloadButton.addEventListener("click", downloadResults);
     summaryUpdated.textContent = "";
 
     try {
-      const response = await fetch(SUMMARY_URL, {
+      const response = await safeFetch(SUMMARY_URL, {
         headers: { Accept: "application/json" },
         signal: controller.signal,
       });
-      const payload = await response.json().catch(() => null);
+      const payload = await readJson(response);
       if (requestId !== summaryState.requestId) return;
       if (!response.ok) {
         throw new Error(
-          apiErrorMessage(payload, `El servidor respondió con un error (HTTP ${response.status}).`),
+          apiErrorMessage(payload, "No se pudieron cargar las métricas. Inténtalo de nuevo."),
         );
       }
       if (!payload || typeof payload !== "object" || Array.isArray(payload)) {

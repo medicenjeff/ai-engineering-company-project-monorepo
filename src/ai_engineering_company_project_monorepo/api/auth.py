@@ -36,6 +36,7 @@ from ai_engineering_company_project_monorepo.services.user_service import get_us
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 PASSWORD_RESET_MESSAGE = "If the email is registered, a password reset link will be sent."
+_logger = logging.getLogger(__name__)
 Database = Annotated[TinyDB, Depends(get_database)]
 CurrentUser = Annotated[User, Depends(get_current_user)]
 
@@ -52,22 +53,60 @@ def forgot_password(
     return {"message": PASSWORD_RESET_MESSAGE}
 
 
+def _record_password_reset_event_safely(
+    database: TinyDB,
+    event: str,
+    ip_address: str | None,
+    *,
+    email: str | None = None,
+    user_id: str | None = None,
+) -> None:
+    try:
+        record_password_reset_event(database, event, ip_address, email=email, user_id=user_id)
+    except Exception:
+        _logger.error("Password reset audit could not be recorded")
+
+
+def _record_password_reset_failure(database: TinyDB, email: str, ip_address: str | None) -> None:
+    _logger.error("Password reset request could not be processed")
+    _record_password_reset_event_safely(database, "request_failed", ip_address, email=email)
+
+
 def process_password_reset_request(database: TinyDB, email: str, ip_address: str | None) -> None:
     try:
-        if not accept_password_reset_request(database, email, ip_address):
-            return
+        accepted = accept_password_reset_request(database, email, ip_address)
+    except (KeyError, OSError, RuntimeError, TypeError, ValueError):
+        _record_password_reset_failure(database, email, ip_address)
+        return
+    if not accepted:
+        return
+
+    try:
         user = get_user_by_email(database, email)
-        if user is not None:
-            token = create_password_reset_token(database, user)
-            record_password_reset_event(database, "token_created", ip_address, user_id=user.id)
-            sent = send_password_reset_email(user.email, token)
-            record_password_reset_event(database, "email_sent" if sent else "email_failed", ip_address, user_id=user.id)
+    except (KeyError, OSError, TypeError, ValueError):
+        _record_password_reset_failure(database, email, ip_address)
+        return
+    if user is None:
+        return
+
+    try:
+        token = create_password_reset_token(database, user)
+    except (KeyError, OSError, RuntimeError, TypeError, ValueError):
+        _record_password_reset_failure(database, email, ip_address)
+        return
+    _record_password_reset_event_safely(database, "token_created", ip_address, user_id=user.id)
+
+    try:
+        sent = send_password_reset_email(user.email, token)
     except Exception:
-        logging.getLogger(__name__).error("Password reset request could not be processed")
-        try:
-            record_password_reset_event(database, "request_failed", ip_address, email=email)
-        except Exception:
-            logging.getLogger(__name__).error("Password reset audit could not be recorded")
+        _logger.error("Password reset email could not be sent; check email service and reset URL configuration")
+        sent = False
+    _record_password_reset_event_safely(
+        database,
+        "email_sent" if sent else "email_failed",
+        ip_address,
+        user_id=user.id,
+    )
 
 
 @router.post("/reset-password")
@@ -76,10 +115,10 @@ def reset_user_password(payload: ResetPasswordRequest, database: Database, reque
     try:
         reset_password(database, payload.token, payload.new_password, ip_address=ip_address)
     except ValueError as error:
-        record_password_reset_event(database, "reset_rejected", ip_address)
+        _record_password_reset_event_safely(database, "reset_rejected", ip_address)
         raise HTTPException(status_code=400, detail="Invalid or expired reset token") from error
     except RuntimeError as error:
-        record_password_reset_event(database, "reset_failed", ip_address)
+        _record_password_reset_event_safely(database, "reset_failed", ip_address)
         raise HTTPException(status_code=500, detail="Token configuration is invalid") from error
     return {"message": "Password reset successfully."}
 

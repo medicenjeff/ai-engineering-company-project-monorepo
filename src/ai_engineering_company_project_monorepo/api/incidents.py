@@ -46,12 +46,20 @@ CsvFile = Annotated[UploadFile, File(description="Fichero CSV de incidencias")]
 async def analyze_incidents(request: Request, file: CsvFile) -> dict[str, object]:
     """Analyze an uploaded incidents CSV file."""
     try:
-        dataframe = pd.read_csv(BytesIO(await file.read()))
-    except (pd.errors.EmptyDataError, pd.errors.ParserError, UnicodeError) as error:
+        file_content = await file.read()
+    except OSError:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="No se pudo leer el archivo CSV.",
+        ) from None
+
+    try:
+        dataframe = pd.read_csv(BytesIO(file_content))
+    except (pd.errors.EmptyDataError, pd.errors.ParserError, UnicodeError, ValueError):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"CSV inválido: {error}",
-        ) from error
+            detail="CSV inválido: revisa el formato y el contenido del archivo.",
+        ) from None
 
     if dataframe.empty and len(dataframe.columns) == 0:
         raise HTTPException(

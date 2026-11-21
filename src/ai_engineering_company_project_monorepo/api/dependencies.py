@@ -2,7 +2,7 @@ from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import jwt
+from jose import JWTError, jwt
 from tinydb import TinyDB
 
 from ai_engineering_company_project_monorepo.api.settings import get_jwt_secret_key
@@ -29,19 +29,20 @@ def get_current_user(
         detail="Invalid or missing bearer token",
         headers={"WWW-Authenticate": "Bearer"},
     )
-    try:
-        if credentials is None:
-            raise ValueError("Missing bearer credentials")
+    if credentials is None:
+        raise unauthorized
 
+    try:
         secret_key = get_jwt_secret_key()
         claims = jwt.decode(credentials.credentials, secret_key, algorithms=["HS256"])
-        user_id = claims.get("sub")
-        if not isinstance(user_id, str):
-            raise ValueError("JWT subject is missing")
+    except JWTError:
+        raise unauthorized from None
 
-        user = get_user_by_id(database, user_id)
-        if user is None or not user.is_active:
-            raise ValueError("User is missing or inactive")
-        return user
-    except Exception as error:
-        raise unauthorized from error
+    user_id = claims.get("sub")
+    if not isinstance(user_id, str):
+        raise unauthorized
+
+    user = get_user_by_id(database, user_id)
+    if user is None or not user.is_active:
+        raise unauthorized
+    return user

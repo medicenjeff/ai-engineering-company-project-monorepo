@@ -1,3 +1,4 @@
+import logging
 from typing import Annotated
 
 import bcrypt
@@ -26,6 +27,7 @@ from ai_engineering_company_project_monorepo.services.user_service import (
 
 
 router = APIRouter(prefix="/users", tags=["users"])
+_logger = logging.getLogger(__name__)
 Database = Annotated[TinyDB, Depends(get_database)]
 CurrentUser = Annotated[User, Depends(get_current_user)]
 
@@ -77,7 +79,10 @@ def register_user(payload: UserCreate, database: Database) -> UserResponse:
             address=payload.address,
         )
     except Exception:
-        delete_user(database, user.id)
+        try:
+            delete_user(database, user.id)
+        except Exception:
+            _logger.error("User registration rollback could not be completed")
         raise
     return _to_response(database, user)
 

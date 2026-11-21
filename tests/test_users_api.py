@@ -46,7 +46,7 @@ def email_api_key(monkeypatch: pytest.MonkeyPatch) -> str:
 def client(monkeypatch: pytest.MonkeyPatch, tmp_path):
     monkeypatch.setenv("JWT_SECRET_KEY", JWT_SECRET)
     monkeypatch.setenv("TINYDB_PATH", str(tmp_path / "users.json"))
-    with TestClient(app) as test_client:
+    with TestClient(app, raise_server_exceptions=False) as test_client:
         yield test_client
 
 
@@ -197,7 +197,7 @@ def test_profile_me_requires_auth_and_only_updates_own_profile(client: TestClien
         headers=headers,
         json={"name": "Unauthorized", "user_id": other_user.id},
     )
-    assert attempted_transfer.status_code == 400
+    assert attempted_transfer.status_code == 422
     assert get_profile_by_user_id(database, other_user.id) == other_profile
 
 
@@ -365,7 +365,7 @@ def test_password_reset_rejects_invalid_tokens(
 def test_password_reset_validates_new_password(client: TestClient, password: str) -> None:
     assert client.post(
         "/auth/reset-password", json={"token": "invalid", "new_password": password}
-    ).status_code == 400
+    ).status_code == 422
 
 
 def test_change_password_updates_only_authenticated_user_and_invalidates_reset_link(
@@ -459,7 +459,7 @@ def test_change_password_validates_new_password(client: TestClient, password: st
     assert client.post(
         "/auth/change-password", headers=auth_headers(user.id),
         json={"current_password": "original-password", "new_password": password},
-    ).status_code == 400
+    ).status_code == 422
 
 
 def test_password_reset_is_single_use_under_concurrent_requests(
@@ -524,8 +524,8 @@ def test_forgot_password_malformed_json_returns_generic_200(client: TestClient) 
     response = client.post("/auth/forgot-password", content="{", headers={"Content-Type": "application/json"})
     assert response.status_code == 200
     assert response.json() == {"message": "If the email is registered, a password reset link will be sent."}
-    assert client.post("/auth/login", json={"email": "not-an-email"}).status_code == 400
-    assert client.post("/auth/reset-password", json={}).status_code == 400
+    assert client.post("/auth/login", json={"email": "not-an-email"}).status_code == 422
+    assert client.post("/auth/reset-password", json={}).status_code == 422
 
 
 @pytest.mark.parametrize("failure_stage", ["lookup", "token", "email"])
@@ -549,7 +549,12 @@ def test_forgot_password_processing_failures_return_generic_200(
     assert known.json() == unknown.json() == {
         "message": "If the email is registered, a password reset link will be sent."
     }
-    assert "Password reset request could not be processed" in caplog.text
+    expected_log = (
+        "Password reset email could not be sent"
+        if failure_stage == "email"
+        else "Password reset request could not be processed"
+    )
+    assert expected_log in caplog.text
     assert "private@example.com" not in caplog.text
     assert "private-token" not in caplog.text
     assert "private-api-key" not in caplog.text
@@ -715,7 +720,7 @@ def test_password_reset_audits_invalid_payloads_and_mail_failure(
     monkeypatch.setattr("ai_engineering_company_project_monorepo.api.auth.send_password_reset_email", MagicMock(return_value=False))
     create_user(client.app.state.database, email="audit-mail@example.com", hashed_password="hash")
     assert client.post("/auth/forgot-password", json={}).status_code == 200
-    assert client.post("/auth/reset-password", json={}).status_code == 400
+    assert client.post("/auth/reset-password", json={}).status_code == 422
     assert client.post("/auth/forgot-password", json={"email": "audit-mail@example.com"}).status_code == 200
     events = client.app.state.database.table("password_reset_audit").all()
     assert [entry["event"] for entry in events] == [
@@ -826,8 +831,11 @@ def test_current_user_rejects_invalid_tokens_and_user_lookup_failures(
 
     monkeypatch.delenv("JWT_SECRET_KEY")
     missing_secret = client.get("/auth/me", headers=auth_headers(user.id))
-    assert missing_secret.status_code == 401
-    assert missing_secret.headers["www-authenticate"] == "Bearer"
+    assert missing_secret.status_code == 500
+    assert missing_secret.json() == {
+        "detail": "Error interno del servidor",
+        "code": "internal_error",
+    }
 
     monkeypatch.setenv("JWT_SECRET_KEY", JWT_SECRET)
 
@@ -839,7 +847,12 @@ def test_current_user_rejects_invalid_tokens_and_user_lookup_failures(
         failed_user_lookup,
     )
     lookup_failure = client.get("/auth/me", headers=auth_headers(user.id))
-    assert lookup_failure.status_code == 401
+    assert lookup_failure.status_code == 500
+    assert lookup_failure.json() == {
+        "detail": "Error interno del servidor",
+        "code": "internal_error",
+    }
+    assert "database lookup failed" not in lookup_failure.text
 
 
 @pytest.mark.parametrize(

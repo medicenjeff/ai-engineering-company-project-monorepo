@@ -15,14 +15,6 @@ class ApiError extends Error {
   }
 }
 
-function errorMessage(payload: { detail?: unknown }) {
-  if (typeof payload.detail === "string") return payload.detail;
-  if (Array.isArray(payload.detail)) {
-    return payload.detail.map((issue) => `${issue.loc?.slice(1).join(".") || "Datos"}: ${issue.msg}`).join("; ");
-  }
-  return "No se pudo completar la solicitud.";
-}
-
 export default function Workspace({ application, document }: { application: string; document: string }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -50,33 +42,66 @@ export default function Workspace({ application, document }: { application: stri
     router.replace("/login");
   }
 
-  async function request(path: string, options: RequestInit = {}) {
+  async function request<T = Record<string, unknown>>(path: string, options: RequestInit = {}): Promise<T> {
     const headers = new Headers(options.headers);
     const token = localStorage.getItem(TOKEN_KEY);
     const recoveryRequest = path === "/auth/forgot-password" || path === "/auth/reset-password";
     if (token && !recoveryRequest) headers.set("Authorization", `Bearer ${token}`);
     if (options.body) headers.set("Content-Type", "application/json");
-    const response = await fetch(`/api/backend${path}`, { ...options, headers, cache: "no-store" });
+    let response: Response;
+    try {
+      response = await fetch(`/api/backend${path}`, { ...options, headers, cache: "no-store" });
+    } catch {
+      throw new ApiError("No se pudo conectar con el servicio. Comprueba tu conexión e inténtalo de nuevo.");
+    }
     if (response.status === 401 && path !== "/auth/login" && !recoveryRequest) logout();
-    const payload = await response.json().catch(() => {
-      throw new ApiError(`El servidor devolvio una respuesta inesperada en ${path} (HTTP ${response.status}). Recarga la pagina e intentalo de nuevo; si persiste, informa de este codigo.`);
-    });
+    let payload: Record<string, unknown>;
+    try {
+      const parsed: unknown = await response.json();
+      payload = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? parsed as Record<string, unknown>
+        : {};
+    } catch {
+      throw new ApiError("El servicio devolvió una respuesta no válida. Inténtalo de nuevo.", {}, response.status);
+    }
     if (!response.ok) {
       const fields: Record<string, string> = {};
-      if (Array.isArray(payload.detail)) {
-        for (const issue of payload.detail) {
-          const field = issue.loc?.[0] === "body" ? issue.loc[1] : undefined;
-          if (["email", "password", "current_password", "new_password", "name", "phone", "address"].includes(field)) {
-            fields[field] = issue.msg || "Valor no valido.";
-          }
+      const validationErrors = Array.isArray(payload.errors)
+        ? payload.errors
+        : Array.isArray(payload.detail)
+          ? payload.detail
+          : [];
+      for (const issue of validationErrors) {
+        const entry = (issue ?? {}) as { field?: unknown; loc?: unknown[]; msg?: unknown; message?: unknown };
+        const field = typeof entry.field === "string"
+          ? entry.field
+          : entry.loc?.[0] === "body" && typeof entry.loc[1] === "string"
+            ? entry.loc[1]
+            : undefined;
+        if (["email", "password", "current_password", "new_password", "name", "phone", "address"].includes(field ?? "")) {
+          const validationMessage = entry.message ?? entry.msg;
+          fields[field!] = typeof validationMessage === "string" ? validationMessage : "Revisa este campo.";
         }
       }
       if (path === "/users" && response.status === 409) {
-        fields.email = "Este email ya esta registrado.";
+        fields.email = "Este email ya está registrado.";
       }
-      throw new ApiError(errorMessage(payload), fields, response.status);
+      const message = path === "/auth/login" && response.status === 401
+        ? "Email o contraseña incorrectos."
+        : response.status === 400 || response.status === 422
+          ? "Revisa los datos e inténtalo de nuevo."
+          : response.status === 401
+            ? "Tu sesión ha caducado. Inicia sesión de nuevo."
+            : response.status === 403
+              ? "No tienes permiso para completar esta acción."
+              : response.status === 404
+                ? "No se encontró el recurso solicitado."
+                : response.status >= 500
+                  ? "El servicio tuvo un problema. Inténtalo de nuevo."
+                  : "No se pudo completar la solicitud. Inténtalo de nuevo.";
+      throw new ApiError(message, fields, response.status);
     }
-    return payload;
+    return payload as T;
   }
 
   useEffect(() => {
@@ -113,19 +138,25 @@ export default function Workspace({ application, document }: { application: stri
       if (!publicView) router.replace("/login");
       return;
     }
-    request("/auth/me").then((data: Account) => {
-      if (!active) return;
-      setAccount(data);
-      setChecking(false);
-      setCheckedPath(pathname);
-      if (publicView) router.replace("/");
-    }).catch((reason: Error) => {
-      if (!active) return;
-      setAccount(null);
-      setError(reason.message);
-      setChecking(false);
-      setCheckedPath(pathname);
-    });
+    void (async () => {
+      try {
+        const data = await request<Account>("/auth/me");
+        if (!active) return;
+        setAccount(data);
+        if (publicView) router.replace("/");
+      } catch (reason) {
+        if (!active) return;
+        setAccount(null);
+        setError(reason instanceof ApiError
+          ? reason.message
+          : "No se pudo comprobar la sesión. Inténtalo de nuevo.");
+      } finally {
+        if (active) {
+          setChecking(false);
+          setCheckedPath(pathname);
+        }
+      }
+    })();
     return () => { active = false; };
   }, [pathname]);
 
@@ -165,18 +196,20 @@ export default function Workspace({ application, document }: { application: stri
         registrationCreated = true;
       }
       const result = await request("/auth/login", { method: "POST", body: JSON.stringify(credentials) });
-      if (typeof result.access_token !== "string" || !result.access_token.trim()) {
-        throw new ApiError("La API de login no devolvio un token valido. No se ha iniciado sesion.");
+      if (typeof result?.access_token !== "string" || !result.access_token.trim()) {
+        throw new ApiError("No se pudo iniciar sesión. Inténtalo de nuevo.");
       }
       localStorage.setItem(TOKEN_KEY, result.access_token);
-      setAccount(await request("/auth/me"));
+      setAccount(await request<Account>("/auth/me"));
       router.replace("/");
     } catch (reason) {
       if (pathname === "/register" && reason instanceof ApiError && Object.keys(reason.fields).length) {
         setFieldErrors(reason.fields);
       } else {
-        const detail = reason instanceof Error ? reason.message : "No se pudo conectar con la API. Intentalo de nuevo.";
-        setError(registrationCreated ? `Tu cuenta fue creada, pero no se pudo completar el inicio de sesion. Ve al login. ${detail}` : detail === "Invalid email or password" ? "Email o contraseña incorrectos." : detail);
+        const detail = reason instanceof ApiError
+          ? reason.message
+          : "No se pudo conectar con el servicio. Inténtalo de nuevo.";
+        setError(registrationCreated ? `Tu cuenta fue creada, pero no se pudo completar el inicio de sesión. Ve al login. ${detail}` : detail);
       }
     } finally { setBusy(false); }
   }
@@ -223,8 +256,10 @@ export default function Workspace({ application, document }: { application: stri
         setError("No se pudo completar la solicitud. Comprueba tu conexión e inténtalo de nuevo.");
       }
     }
-    recoverySubmitting.current = false;
-    setBusy(false);
+    finally {
+      recoverySubmitting.current = false;
+      setBusy(false);
+    }
   }
 
   async function submitPasswordChange(event: FormEvent<HTMLFormElement>) {
@@ -276,9 +311,9 @@ export default function Workspace({ application, document }: { application: stri
       await request("/profiles/me", { method: "PUT", body: JSON.stringify({
         name: String(form.get("name")), phone: String(form.get("phone")), address: String(form.get("address")),
       }) });
-      setAccount(await request("/auth/me"));
+      setAccount(await request<Account>("/auth/me"));
       setMessage("Perfil actualizado.");
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo guardar el perfil."); }
+    } catch (reason) { setError(reason instanceof ApiError ? reason.message : "No se pudo guardar el perfil. Inténtalo de nuevo."); }
     finally { setBusy(false); }
   }
 
@@ -289,22 +324,37 @@ export default function Workspace({ application, document }: { application: stri
     setError("");
     setMessage("");
     try {
-      const token = localStorage.getItem(TOKEN_KEY)!;
+      const token = localStorage.getItem(TOKEN_KEY);
+      if (!token) throw new ApiError("Tu sesión no es válida. Inicia sesión de nuevo.", {}, 401);
       const segment = token.split(".")[1];
-      if (!segment) throw new Error("Sesion no valida. Inicia sesion de nuevo.");
+      if (!segment) throw new ApiError("Tu sesión no es válida. Inicia sesión de nuevo.", {}, 401);
       const encoded = segment.replace(/-/g, "+").replace(/_/g, "/");
-      const userId = JSON.parse(atob(encoded)).sub;
+      let claims: { sub?: unknown };
+      try {
+        claims = JSON.parse(atob(encoded));
+      } catch {
+        throw new ApiError("Tu sesión no es válida. Inicia sesión de nuevo.", {}, 401);
+      }
+      const userId = claims?.sub;
+      if (typeof userId !== "string" || !userId) {
+        throw new ApiError("Tu sesión no es válida. Inicia sesión de nuevo.", {}, 401);
+      }
       const password = String(form.get("password"));
       await request(`/users/${encodeURIComponent(userId)}`, { method: "PUT", body: JSON.stringify({
         email: String(form.get("email")), ...(password ? { password } : {}),
       }) });
       setAccount(await request("/auth/me"));
       setMessage("Cuenta actualizada.");
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo guardar la cuenta."); }
+    } catch (reason) { setError(reason instanceof ApiError ? reason.message : "No se pudo guardar la cuenta. Inténtalo de nuevo."); }
     finally { setBusy(false); }
   }
 
-  if (checking || checkedPath !== pathname) return <main className="auth-loading" role="status">Comprobando sesion...</main>;
+  if (checking || checkedPath !== pathname) return (
+    <main className="auth-loading" role="status" aria-busy="true">
+      <span className="auth-loading-spinner" aria-hidden="true" />
+      <span>Comprobando sesión...</span>
+    </main>
+  );
 
   function authField(name: string, label: string, type = "text", autocomplete = name) {
     const passwordField = ["password", "current_password", "new_password", "confirm_password"].includes(name);

@@ -88,11 +88,12 @@ def test_incident_seed_reports_invalid_csv_rows(tmp_path, monkeypatch, capsys):
     with pytest.raises(SystemExit) as result:
         seed_script["main"]()
     assert result.value.code == 1
-    report = capsys.readouterr().out
+    captured = capsys.readouterr()
     for ticket_id in ["NXV-000017", "NXV-000043", "NXV-000086", "NXV-000090"]:
-        assert ticket_id in report
-    assert "Insertadas:     96" in report
-    assert "Inválidas (rechazadas): 4" in report
+        assert ticket_id not in captured.out + captured.err
+    assert "Insertadas:     96" in captured.out
+    assert "Inválidas (rechazadas): 4" in captured.out
+    assert "valor no válido" in captured.err
 
 
 @pytest.mark.parametrize("invalid", [
@@ -172,7 +173,11 @@ def test_seed_loads_context_and_reports_inserted_count(
     monkeypatch.setattr(sys, "argv", ["seed", "--database", str(database_path)])
 
     main()
-    assert "Proveedores insertados: 3." in capsys.readouterr().out
+    first_output = capsys.readouterr().out
+    assert "Proveedores insertados: 3." in first_output
+    assert str(database_path) not in first_output
 
     main()
-    assert "Proveedores insertados: 0." in capsys.readouterr().out
+    second_output = capsys.readouterr().out
+    assert "Proveedores insertados: 0." in second_output
+    assert str(database_path) not in second_output

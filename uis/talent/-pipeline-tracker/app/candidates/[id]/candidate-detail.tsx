@@ -93,6 +93,7 @@ export default function CandidateDetail({ candidateId }: CandidateDetailProps) {
   const [newNote, setNewNote] = useState("");
   const [isPending, startTransition] = useTransition();
   const [isSavingNote, setIsSavingNote] = useState(false);
+  const [deletingNoteId, setDeletingNoteId] = useState<string | null>(null);
 
   // Obtención inicial de datos (GET /records/:id y GET /records/:id/notes).
   useEffect(() => {
@@ -114,6 +115,8 @@ export default function CandidateDetail({ candidateId }: CandidateDetailProps) {
         if (cancelled) return;
         // Un 404 significa candidatura inexistente (URL mal escrita o borrada)
         setPhase(error instanceof TrackerApiError && error.status === 404 ? "not_found" : "error");
+      } finally {
+        if (!cancelled) setPhase((current) => current === "loading" ? "error" : current);
       }
     }
     load();
@@ -191,9 +194,11 @@ export default function CandidateDetail({ candidateId }: CandidateDetailProps) {
 
   // Elimina una nota mediante DELETE /records/:id/notes/:note_id
   const handleDeleteNote = async (noteId: string) => {
+    if (deletingNoteId) return;
     if (!window.confirm("¿Eliminar esta nota? Esta acción no se puede deshacer.")) {
       return;
     }
+    setDeletingNoteId(noteId);
     setFeedback(null);
     try {
       await deleteNote(id, noteId);
@@ -205,6 +210,8 @@ export default function CandidateDetail({ candidateId }: CandidateDetailProps) {
         tone: "error",
         text: "No se pudo eliminar la nota. Inténtalo de nuevo.",
       });
+    } finally {
+      setDeletingNoteId(null);
     }
   };
 
@@ -514,10 +521,12 @@ export default function CandidateDetail({ candidateId }: CandidateDetailProps) {
                   <button
                     type="button"
                     onClick={() => handleDeleteNote(note.id)}
+                    disabled={deletingNoteId !== null}
+                    aria-busy={deletingNoteId === note.id}
                     className="shrink-0 rounded-md px-2 py-1 text-xs font-medium text-rose-600 transition-colors hover:bg-rose-50 hover:text-rose-700"
                     aria-label="Eliminar nota"
                   >
-                    Eliminar
+                    {deletingNoteId === note.id ? "Eliminando…" : "Eliminar"}
                   </button>
                 </li>
               ))}
