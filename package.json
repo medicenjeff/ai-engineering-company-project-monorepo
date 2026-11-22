@@ -3,6 +3,12 @@
   "private": true,
   "workspaces": ["uis/backoffice", "uis/playground", "packages/shared"],
   "scripts": {
-    "build:uis": "npm run build --workspace @repo/nexova-backoffice && npm run build --workspace @repo/nexova-playground"
+    "build:uis": "npm run build --workspace @repo/nexova-backoffice && npm run build --workspace @repo/nexova-playground",
+    "test:auth-utils": "jest --coverage"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.14",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.4.5"
   }
 }

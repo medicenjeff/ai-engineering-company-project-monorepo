@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { getAccessToken, getJwtSubject, isWithinBcryptLimit } from "./auth-utils";
 
 const TOKEN_KEY = "nexova.access_token";
 const PASSWORD_RESET_MESSAGE_KEY = "nexova.password_reset_success";
@@ -196,10 +197,11 @@ export default function Workspace({ application, document }: { application: stri
         registrationCreated = true;
       }
       const result = await request("/auth/login", { method: "POST", body: JSON.stringify(credentials) });
-      if (typeof result?.access_token !== "string" || !result.access_token.trim()) {
+      const accessToken = getAccessToken(result);
+      if (!accessToken) {
         throw new ApiError("No se pudo iniciar sesión. Inténtalo de nuevo.");
       }
-      localStorage.setItem(TOKEN_KEY, result.access_token);
+      localStorage.setItem(TOKEN_KEY, accessToken);
       setAccount(await request<Account>("/auth/me"));
       router.replace("/");
     } catch (reason) {
@@ -226,7 +228,7 @@ export default function Workspace({ application, document }: { application: stri
         setFieldErrors({ confirm_password: "Las contraseñas no coinciden." });
         return;
       }
-      if (new TextEncoder().encode(newPassword).length > 72) {
+      if (!isWithinBcryptLimit(newPassword)) {
         setFieldErrors({ new_password: "La contraseña no puede superar los 72 bytes UTF-8." });
         return;
       }
@@ -275,7 +277,7 @@ export default function Workspace({ application, document }: { application: stri
       setFieldErrors({ confirm_password: "Las contraseñas no coinciden." });
       return;
     }
-    if (new TextEncoder().encode(newPassword).length > 72) {
+    if (!isWithinBcryptLimit(newPassword)) {
       setFieldErrors({ new_password: "La contraseña no puede superar los 72 bytes UTF-8." });
       return;
     }
@@ -326,17 +328,8 @@ export default function Workspace({ application, document }: { application: stri
     try {
       const token = localStorage.getItem(TOKEN_KEY);
       if (!token) throw new ApiError("Tu sesión no es válida. Inicia sesión de nuevo.", {}, 401);
-      const segment = token.split(".")[1];
-      if (!segment) throw new ApiError("Tu sesión no es válida. Inicia sesión de nuevo.", {}, 401);
-      const encoded = segment.replace(/-/g, "+").replace(/_/g, "/");
-      let claims: { sub?: unknown };
-      try {
-        claims = JSON.parse(atob(encoded));
-      } catch {
-        throw new ApiError("Tu sesión no es válida. Inicia sesión de nuevo.", {}, 401);
-      }
-      const userId = claims?.sub;
-      if (typeof userId !== "string" || !userId) {
+      const userId = getJwtSubject(token);
+      if (!userId) {
         throw new ApiError("Tu sesión no es válida. Inicia sesión de nuevo.", {}, 401);
       }
       const password = String(form.get("password"));

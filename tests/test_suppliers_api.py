@@ -69,6 +69,27 @@ def test_list_suppliers_filters_by_country_and_category(client: TestClient) -> N
     assert client.get("/suppliers", params={"category": "unknown"}).status_code == 422
 
 
+def test_list_suppliers_combines_country_and_category_filters(client: TestClient) -> None:
+    matching = supplier_payload(name="España Executive")
+    other_country = supplier_payload(
+        name="US Executive",
+        country="Estados Unidos",
+    )
+    other_category = supplier_payload(
+        name="España Formación",
+        product_categories=["corporate_training"],
+    )
+    for payload in (matching, other_country, other_category):
+        client.post("/suppliers", json=payload)
+
+    results = client.get(
+        "/suppliers",
+        params={"country": "España", "category": "executive_search"},
+    ).json()
+
+    assert [supplier["name"] for supplier in results] == ["España Executive"]
+
+
 def test_get_supplier_and_patch_rate(client: TestClient) -> None:
     created = client.post("/suppliers", json=supplier_payload()).json()
     supplier_id = created["id"]

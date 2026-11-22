@@ -113,6 +113,17 @@ def test_incident_internal_error_never_exposes_traceback(incident_client, monkey
     assert "private" not in response.text
 
 
+def test_empty_incident_summary_has_zero_counts(incident_client):
+    summary = incident_client.get("/api/incidents/summary").json()
+
+    assert summary == {
+        "by_status": {},
+        "by_category": {},
+        "by_origin": {},
+        "by_branch": {},
+    }
+
+
 @pytest.mark.parametrize("field,value", [
     ("id", ""), ("title", "x" * 121), ("description", " "),
     ("category", None), ("status", "open"), ("origin", "customer"),
